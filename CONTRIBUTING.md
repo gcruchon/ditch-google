@@ -106,7 +106,10 @@ internals. Renaming an internal function is `refactor:`, not a breaking change.
   whenever colour is forced (as it is on CI).
 - **Never log a credential**, a token, or a full Proton session identifier.
 - **Subprocess calls go through `proc.py`** — don't call `subprocess` directly, so timeouts,
-  streaming and error handling stay consistent.
+  streaming and error handling stay consistent. The one exception is
+  [`exiftool.py`](src/ditch_google/exiftool.py), which drives a long-lived interactive
+  `-stay_open` session that `run`/`stream` cannot express; it still resolves its binary
+  via `proc.resolve` and raises `proc.ToolError` subclasses.
 
 ## Testing expectations
 

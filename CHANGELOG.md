@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google photos fix` — writes sidecar metadata back into the media files with
+  exiftool: capture time (with an explicit UTC offset), GPS, description and tagged
+  people, plus QuickTime tags for video and the file's modification time. This is what
+  makes photos land on the right date in the Proton timeline.
+- `exiftool` — a long-lived `-stay_open` session reused across the whole run. Starting
+  exiftool per photo would add over five hours to a 100,000-photo library.
+- `--prefer-existing-exif` on `photos fix`, to fill only gaps instead of letting the
+  sidecar overwrite metadata already in the file.
+
 - `sidecar` — pairs each media file with its Takeout metadata JSON, handling the modern
   `.supplemental-metadata` form, the legacy and stem-only forms, Google's 46-character
   truncation, duplicate `(1)` markers, localised `-edited` copies, and live-photo videos

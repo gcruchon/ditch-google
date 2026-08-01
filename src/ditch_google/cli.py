@@ -28,9 +28,10 @@ from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
 from ditch_google.photos import discover as discover_module
 from ditch_google.photos import fetch as fetch_module
+from ditch_google.photos import fix as fix_module
 from ditch_google.photos import unpack as unpack_module
 from ditch_google.photos.unpack import UnsafeArchiveMemberError
-from ditch_google.state import ArchiveStage, State, default_state_path
+from ditch_google.state import ArchiveStage, ItemStage, State, default_state_path
 
 # `console` is for human-facing output only. Anything a script might parse - version
 # strings, `--json` payloads - goes through `typer.echo`, which emits plain text. rich
@@ -265,9 +266,51 @@ def unpack(
 
 
 @photos_app.command()
-def fix() -> None:
+def fix(
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    prefer_existing: Annotated[
+        bool,
+        typer.Option(
+            "--prefer-existing-exif",
+            help="Only fill gaps, never overwrite metadata already in the file.",
+        ),
+    ] = False,
+) -> None:
     """Write metadata from the Takeout sidecar JSON back into the media files."""
-    _not_yet("fix")
+    with State.open(state_db or default_state_path()) as state:
+        pending = [i for i in state.pending_items() if i.stage is ItemStage.DISCOVERED]
+        if not pending:
+            console.print("Nothing to fix. Run [bold]photos unpack[/bold] first.")
+            return
+
+        try:
+            with Progress(
+                TextColumn("[bold]writing metadata"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("fix", total=len(pending))
+                result = fix_module.fix_pending(
+                    state,
+                    prefer_existing=prefer_existing,
+                    on_progress=lambda done, _total: progress.update(task, completed=done),
+                )
+        except proc.ToolNotFoundError as exc:
+            err_console.print(f"[red]{exc}[/red] Run [bold]ditch-google doctor[/bold].")
+            raise typer.Exit(code=1) from exc
+
+        console.print(f"[green]Wrote metadata into {result.written} file(s).[/green]")
+        if result.skipped_no_sidecar:
+            console.print(
+                f"{result.skipped_no_sidecar} file(s) had no sidecar and keep their existing dates."
+            )
+        if result.failed:
+            err_console.print(
+                f"[yellow]{result.failed} file(s) could not be written.[/yellow] "
+                "See [bold]photos status[/bold]."
+            )
 
 
 @photos_app.command()

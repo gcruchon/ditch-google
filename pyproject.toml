@@ -49,6 +49,7 @@ dev = [
     "ruff>=0.5",
     "commitizen>=3.27",
     "pre-commit>=3.7",
+    "pillow>=12.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
