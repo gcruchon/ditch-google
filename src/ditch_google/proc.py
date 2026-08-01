@@ -185,22 +185,26 @@ def run_json(
 def stream(
     argv: Sequence[str],
     *,
-    on_line: Callable[[str], None],
+    on_line: Callable[[str], None] | None = None,
+    on_stderr_line: Callable[[str], None] | None = None,
     timeout: float | None = None,
     cwd: Path | None = None,
     env: Mapping[str, str] | None = None,
     check: bool = True,
 ) -> CommandResult:
-    """Run a long-lived command, calling ``on_line`` for each line of stdout.
+    """Run a long-lived command, calling back for each line it writes.
 
     Used for transfers, where waiting for completion before showing anything would leave
     the user staring at nothing for hours. ``timeout`` defaults to no limit, because a
     large upload legitimately takes a very long time.
 
-    stderr is captured in full and only reported if the command fails.
+    ``on_stderr_line`` matters more than it looks: rclone writes its JSON progress log to
+    **stderr**, not stdout. stderr is captured in full either way, and reported if the
+    command fails.
     """
     resolved = _prepare(argv)
     stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
     timed_out = threading.Event()
 
     with subprocess.Popen(
@@ -213,6 +217,20 @@ def stream(
         env=_environment(env),
     ) as process:
         assert process.stdout is not None  # noqa: S101 - guaranteed by stdout=PIPE
+        assert process.stderr is not None  # noqa: S101 - guaranteed by stderr=PIPE
+
+        # stderr is drained on its own thread. Reading the two pipes in sequence would
+        # deadlock as soon as one filled its buffer while we were blocked on the other -
+        # which rclone reliably triggers, since it logs progress to stderr throughout.
+        def _drain_stderr() -> None:
+            for raw in process.stderr:  # type: ignore[union-attr]
+                line = raw.rstrip("\n")
+                stderr_lines.append(line)
+                if on_stderr_line is not None:
+                    on_stderr_line(line)
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
 
         # The timeout has to cover the read loop, not just the final wait(). Iterating
         # over stdout blocks indefinitely, so a process that stops producing output
@@ -234,7 +252,8 @@ def stream(
             for raw in process.stdout:
                 line = raw.rstrip("\n")
                 stdout_lines.append(line)
-                on_line(line)
+                if on_line is not None:
+                    on_line(line)
             process.wait()
         except BaseException:
             # Includes KeyboardInterrupt: don't leave an orphaned transfer running.
@@ -244,11 +263,12 @@ def stream(
         finally:
             if watchdog is not None:
                 watchdog.cancel()
+            stderr_thread.join(timeout=5)
 
         if timed_out.is_set():
             raise ToolTimeoutError(resolved, timeout or 0.0)
 
-        stderr = process.stderr.read() if process.stderr else ""
+        stderr = "\n".join(stderr_lines)
 
     result = CommandResult(
         argv=tuple(resolved),

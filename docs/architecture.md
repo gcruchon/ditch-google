@@ -40,6 +40,29 @@ later pass can repair it, because the truth was never uploaded.
 
 `photos/pipeline.py` orchestrates them; `photos/report.py` renders the outcome.
 
+## Archives are untrusted input
+
+A Takeout archive nominally comes from Google, but it travelled through a download and
+sat on disk where anything could have altered it. [`unpack.py`](../src/ditch_google/photos/unpack.py)
+therefore validates every member instead of trusting the paths inside the archive.
+
+| Refused | Example member | Why |
+|---|---|---|
+| Path traversal | `../../.ssh/authorized_keys` | Writes outside the destination (CVE-2007-4559, Zip Slip) |
+| Absolute paths | `/etc/cron.d/evil` | Same, more directly |
+| Drive letters | `C:/Windows/system32/evil.dll` | The Windows form of the above |
+| Symlinks / hard links | `passwd-link → /etc/passwd` | Turns a later innocuous write into an arbitrary-file write |
+| Device nodes, FIFOs | `dev/null` | A photo archive has no legitimate reason to contain one |
+
+Names are checked **before any filesystem call**, so a hostile entry is refused without
+touching disk. A second check confirms the resolved target really lands under the
+destination, which catches the case where an earlier extracted symlink would redirect an
+otherwise-innocent relative path.
+
+Links and special files are *skipped and reported*. Traversal and absolute paths **abort
+the entire archive** — one hostile member discredits the whole thing, so we do not keep
+extracting the rest of it. The archive is marked `failed` in the ledger with the reason.
+
 ## Streaming, not staging everything
 
 A real library is often hundreds of gigabytes, and the naive design needs that much local
