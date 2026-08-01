@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google doctor` — preflight checks for `rclone`, `exiftool` and `proton-drive`,
+  including the `proton-drive` ≥ 0.7.0 floor required for photo support, Proton sign-in,
+  the Takeout source location and free disk space. Every failure carries a specific
+  remedy. Supports `--json`, and exits non-zero so it can gate a script.
+- `proc` — shared subprocess runner used for all external tools, with consistent
+  timeouts, output capture and errors.
+- Test fixtures that stub the external tools, so the suite runs without `rclone`,
+  `exiftool` or `proton-drive` installed.
+
+### Fixed
+
+- Corrected the documented `proton-drive` commands: sign-in is `auth login` /
+  `auth logout`, and the version probe is `version`.
+
+### Project
+
 - Project scaffolding: packaging, Apache-2.0 license, ruff + mypy (strict) + pytest,
   pre-commit hooks, CI and release workflows, issue and PR templates, Dependabot.
 - Governance: README with an honest comparison against Proton's official import routes,

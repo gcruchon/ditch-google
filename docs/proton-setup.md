@@ -3,12 +3,12 @@
 ## Install `proton-drive` (≥ 0.7.0 required)
 
 Download the binary for your platform from
-[Proton Drive downloads](https://proton.me/drive/download).
+[Proton Drive downloads](https://proton.me/download/drive/cli/index.html).
 
 ```bash
 chmod +x proton-drive            # macOS / Linux
 sudo mv proton-drive /usr/local/bin/
-proton-drive --version
+proton-drive version
 ```
 
 > [!IMPORTANT]
@@ -23,7 +23,7 @@ the binary.
 ## Sign in
 
 ```bash
-proton-drive login
+proton-drive auth login
 ```
 
 This opens your browser. **No password is typed on the command line**, and the session is

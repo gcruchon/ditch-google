@@ -13,12 +13,12 @@ Not installed, or not on your `PATH`. See [proton-setup.md](proton-setup.md).
 
 Photo and album commands arrived in `cli/v0.7.0`. Earlier versions cannot write to the
 Photos timeline. Download a newer binary from
-[Proton Drive downloads](https://proton.me/drive/download).
+[Proton Drive downloads](https://proton.me/download/drive/cli/index.html).
 
 ### `Not signed in to Proton`
 
-Run `proton-drive login`. If it keeps failing, the stored session may be stale — try
-`proton-drive logout` then log in again.
+Run `proton-drive auth login`. If it keeps failing, the stored session may be stale — try
+`proton-drive auth logout` then log in again.
 
 ### `directory not found: drive:Takeout`
 
