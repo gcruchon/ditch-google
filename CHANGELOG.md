@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `state` — the resumable SQLite ledger tracking archives, items, albums and album
+  membership, with versioned migrations. Every write is idempotent, so re-running after
+  an interruption never duplicates an upload, resets progress, or creates a second copy
+  of an album.
+- `ditch-google photos status` — migration progress from the ledger, including how many
+  items could not be matched to a sidecar. Supports `--json`.
+
 - `ditch-google doctor` — preflight checks for `rclone`, `exiftool` and `proton-drive`,
   including the `proton-drive` ≥ 0.7.0 floor required for photo support, Proton sign-in,
   the Takeout source location and free disk space. Every failure carries a specific

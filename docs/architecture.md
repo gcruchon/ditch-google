@@ -55,18 +55,41 @@ reconstruction runs as a **final pass** once every archive has been uploaded.
 
 ## State and resume
 
-SQLite at `~/.local/state/ditch-google/photos.db`, one row per media item:
+SQLite at `~/.local/state/ditch-google/photos.db` (honouring `XDG_STATE_HOME`), in
+[`state.py`](../src/ditch_google/state.py). Four tables:
 
-```
-source_path  archive  sha1  sidecar_path  stage  proton_node  error  ts
-```
+| Table | Holds | Stages |
+|---|---|---|
+| `archives` | one row per Takeout part | `pending → fetched → unpacked → completed`, plus `failed` |
+| `items` | one row per photo or video | `discovered → fixed → uploaded → verified`, plus `failed`, `skipped` |
+| `albums` | Takeout album ↔ Proton album | — |
+| `album_items` | membership, with an `added` flag | — |
 
-`stage` is the furthest point that item reached. Resume re-enters the pipeline at each
-item's recorded stage, so the whole thing is idempotent by construction — re-running after
-an interruption is always safe and never the wrong thing to do.
+Two levels of granularity, because they resume differently. **Archives** drive the
+streaming loop, which handles one part at a time so peak disk stays bounded. **Items**
+carry the per-photo detail that the final report is built from.
 
-`proton_node` records the uploaded item's identity, so the albums pass can add members
+`stage` is the furthest point that unit reached. Resume re-enters the pipeline at each
+recorded stage, so the whole thing is idempotent by construction — re-running after an
+interruption is always safe and never the wrong thing to do. Concretely:
+
+- `add_archive`, `add_item` and `add_album` never reset progress on something already
+  recorded, so re-walking an unpacked archive is a no-op rather than a duplicate upload.
+- `add_album` being idempotent on title is what stops a resumed run creating a second
+  "Holiday 2019" beside the first.
+- Advancing an item's stage never discards its `proton_uid` or `sha1`, so verification
+  cannot erase what upload recorded.
+
+`proton_uid` records the uploaded item's identity, so the albums pass can add members
 without re-listing the remote timeline.
+
+A failed archive is **not** retried automatically. The same failure would most likely
+recur, and burying it behind an infinite retry helps nobody — it surfaces in
+`photos status` and in the final report instead.
+
+Schema changes are versioned migrations keyed off SQLite's `user_version`. Each migration
+commits its schema change and its version bump in one transaction, so a crash can never
+leave the two disagreeing.
 
 ## Verification
 

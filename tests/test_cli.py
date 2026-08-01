@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from ditch_google import __version__
 from ditch_google.cli import app
+from ditch_google.state import ItemStage, State
 
 runner = CliRunner()
 
@@ -27,6 +28,9 @@ PHOTO_STAGES = [
     "verify",
     "status",
 ]
+
+#: Stages still to be built. Move a name out of here as its PR lands.
+UNIMPLEMENTED_STAGES = [stage for stage in PHOTO_STAGES if stage != "status"]
 
 
 def test_version_flag_prints_version() -> None:
@@ -62,7 +66,7 @@ def test_photos_help_lists_every_stage() -> None:
         assert stage in result.stdout
 
 
-@pytest.mark.parametrize("stage", PHOTO_STAGES)
+@pytest.mark.parametrize("stage", UNIMPLEMENTED_STAGES)
 def test_unimplemented_stage_exits_cleanly(stage: str) -> None:
     """A declared-but-unbuilt stage must fail loudly, not silently succeed."""
     result = runner.invoke(app, ["photos", stage])
@@ -110,3 +114,62 @@ def test_doctor_json_reports_not_ok_on_failure(fake_bin: Path, tmp_path: Path) -
 def test_unknown_command_is_an_error() -> None:
     result = runner.invoke(app, ["photos", "teleport"])
     assert result.exit_code != 0
+
+
+def test_status_before_any_migration_has_started(tmp_path: Path) -> None:
+    """A first-time user running `status` should get an explanation, not a stack trace."""
+    result = runner.invoke(app, ["photos", "status", "--state-db", str(tmp_path / "none.db")])
+    assert result.exit_code == 0
+    assert "No migration has been started" in result.stdout
+
+
+def test_status_json_before_any_migration(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["photos", "status", "--state-db", str(tmp_path / "none.db"), "--json"]
+    )
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["started"] is False
+
+
+def test_status_reports_progress(tmp_path: Path) -> None:
+    db = tmp_path / "photos.db"
+    with State.open(db) as state:
+        state.add_archive("a.tgz", "drive:Takeout/a.tgz")
+        state.add_item("a.tgz", "/work/done.jpg")
+        state.add_item("a.tgz", "/work/todo.jpg")
+        state.set_item_stage("/work/done.jpg", ItemStage.VERIFIED)
+
+    result = runner.invoke(app, ["photos", "status", "--state-db", str(db), "--json"])
+    assert result.exit_code == 0
+
+    payload = json.loads(result.stdout)
+    assert payload["started"] is True
+    assert payload["complete"] is False
+    assert payload["items"]["verified"] == 1
+    assert payload["items"]["discovered"] == 1
+    assert payload["archives"]["pending"] == 1
+
+
+def test_status_reports_unmatched_sidecars(tmp_path: Path) -> None:
+    """Unmatched media is the number a user most needs to see."""
+    db = tmp_path / "photos.db"
+    with State.open(db) as state:
+        state.add_archive("a.tgz", "remote:a.tgz")
+        state.add_item("a.tgz", "/work/orphan.jpg")
+
+    result = runner.invoke(app, ["photos", "status", "--state-db", str(db)])
+    assert "1 item(s) have no matching sidecar" in result.stdout
+
+
+def test_status_json_is_plain_text_when_colour_is_forced(tmp_path: Path) -> None:
+    db = tmp_path / "photos.db"
+    with State.open(db) as state:
+        state.add_archive("a.tgz", "remote:a.tgz")
+
+    result = runner.invoke(
+        app,
+        ["photos", "status", "--state-db", str(db), "--json"],
+        env={"FORCE_COLOR": "1", "TERM": "xterm-256color"},
+    )
+    assert "\x1b[" not in result.stdout
+    json.loads(result.stdout)
