@@ -13,12 +13,23 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 from rich.table import Table
 
-from ditch_google import __version__
+from ditch_google import __version__, proc
 from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
-from ditch_google.state import State, default_state_path
+from ditch_google.photos import fetch as fetch_module
+from ditch_google.photos import unpack as unpack_module
+from ditch_google.photos.unpack import UnsafeArchiveMemberError
+from ditch_google.state import ArchiveStage, State, default_state_path
 
 # `console` is for human-facing output only. Anything a script might parse - version
 # strings, `--json` payloads - goes through `typer.echo`, which emits plain text. rich
@@ -140,15 +151,100 @@ def migrate() -> None:
 
 
 @photos_app.command()
-def fetch() -> None:
+def fetch(
+    source: Annotated[
+        str,
+        typer.Option("--source", help="Takeout location in Drive, e.g. drive:Takeout."),
+    ],
+    work_dir: Annotated[Path, typer.Option("--work-dir", help="Where to stage archives.")] = Path(
+        "./work"
+    ),
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    transfers: Annotated[int, typer.Option("--transfers", help="Parallel rclone transfers.")] = 4,
+) -> None:
     """Download the Takeout export from Google Drive."""
-    _not_yet("fetch")
+    with State.open(state_db or default_state_path()) as state:
+        try:
+            archives = fetch_module.list_archives(source)
+        except proc.ToolError as exc:
+            err_console.print(f"[red]Could not list {source}:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+        if not archives:
+            err_console.print(
+                f"[yellow]No .tgz or .zip archives found at {source}.[/yellow] "
+                "Check that your Takeout export finished and was delivered to Drive."
+            )
+            raise typer.Exit(code=1)
+
+        fetch_module.register_archives(state, archives)
+        console.print(f"Found {len(archives)} archive(s) at {source}.")
+
+        pending = [a for a in state.archives() if a.stage is ArchiveStage.PENDING]
+        if not pending:
+            console.print("[green]Every archive has already been downloaded.[/green]")
+            return
+
+        with Progress(
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            for archive in pending:
+                task = progress.add_task(archive.name, total=archive.size_bytes or None)
+                try:
+                    fetch_module.fetch_archive(
+                        state,
+                        archive.name,
+                        work_dir,
+                        transfers=transfers,
+                        on_progress=lambda p, task=task: progress.update(  # type: ignore[misc]
+                            task, completed=p.bytes_done, total=p.bytes_total or None
+                        ),
+                    )
+                except proc.ToolError as exc:
+                    err_console.print(f"[red]{archive.name} failed:[/red] {exc}")
+                    raise typer.Exit(code=1) from exc
+
+        console.print(f"[green]Downloaded {len(pending)} archive(s).[/green]")
 
 
 @photos_app.command()
-def unpack() -> None:
+def unpack(
+    work_dir: Annotated[
+        Path, typer.Option("--work-dir", help="Where archives were staged.")
+    ] = Path("./work"),
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+) -> None:
     """Extract the downloaded Takeout archives."""
-    _not_yet("unpack")
+    with State.open(state_db or default_state_path()) as state:
+        ready = [a for a in state.archives() if a.stage is ArchiveStage.FETCHED]
+        if not ready:
+            console.print("Nothing to unpack. Run [bold]photos fetch[/bold] first.")
+            return
+
+        total_files = 0
+        for archive in ready:
+            try:
+                result = unpack_module.unpack_for_state(state, archive.name, work_dir)
+            except UnsafeArchiveMemberError as exc:
+                err_console.print(f"[red]{archive.name} is not safe to extract:[/red] {exc}")
+                raise typer.Exit(code=1) from exc
+            except (ValueError, OSError) as exc:
+                err_console.print(f"[red]{archive.name} could not be extracted:[/red] {exc}")
+                raise typer.Exit(code=1) from exc
+
+            total_files += result.extracted
+            console.print(f"{archive.name}: {result.extracted} file(s)")
+            for name, reason in result.skipped:
+                console.print(f"  [yellow]skipped[/yellow] {name} ({reason})")
+
+        console.print(
+            f"[green]Extracted {total_files} file(s) from {len(ready)} archive(s).[/green]"
+        )
 
 
 @photos_app.command()

@@ -30,7 +30,8 @@ PHOTO_STAGES = [
 ]
 
 #: Stages still to be built. Move a name out of here as its PR lands.
-UNIMPLEMENTED_STAGES = [stage for stage in PHOTO_STAGES if stage != "status"]
+IMPLEMENTED_STAGES = {"status", "fetch", "unpack"}
+UNIMPLEMENTED_STAGES = [s for s in PHOTO_STAGES if s not in IMPLEMENTED_STAGES]
 
 
 def test_version_flag_prints_version() -> None:

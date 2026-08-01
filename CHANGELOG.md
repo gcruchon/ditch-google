@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google photos fetch` — lists the Takeout parts in Drive with `rclone lsjson`,
+  records them in the ledger and downloads them with a live progress bar. Non-archive
+  files such as Takeout's HTML index are ignored. Resumable: already-downloaded parts
+  are skipped.
+- `ditch-google photos unpack` — extracts `.tgz` and `.zip` parts, **validating every
+  member** against path traversal (CVE-2007-4559 / Zip Slip), absolute paths, and
+  symlinks or hard links pointing outside the destination. Device nodes and other
+  special members are skipped and reported. One hostile member aborts the whole archive.
+- `proc.stream` can now stream stderr as well as stdout, which is where rclone writes
+  its JSON progress log.
+
 - `state` — the resumable SQLite ledger tracking archives, items, albums and album
   membership, with versioned migrations. Every write is idempotent, so re-running after
   an interruption never duplicates an upload, resets progress, or creates a second copy
