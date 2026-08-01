@@ -3,7 +3,7 @@
   subject and the changelog entry. CI will reject it otherwise.
 
   Examples:
-    feat(sidecar): match sidecars truncated to the 51-character budget
+    feat(sidecar): match sidecars truncated to the 46-character budget
     fix(metadata): fall back to geoDataExif when geoData is zeroed
 -->
 

@@ -26,6 +26,7 @@ from rich.table import Table
 from ditch_google import __version__, proc
 from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
+from ditch_google.photos import discover as discover_module
 from ditch_google.photos import fetch as fetch_module
 from ditch_google.photos import unpack as unpack_module
 from ditch_google.photos.unpack import UnsafeArchiveMemberError
@@ -227,6 +228,8 @@ def unpack(
             return
 
         total_files = 0
+        total_media = 0
+        total_unmatched = 0
         for archive in ready:
             try:
                 result = unpack_module.unpack_for_state(state, archive.name, work_dir)
@@ -238,13 +241,27 @@ def unpack(
                 raise typer.Exit(code=1) from exc
 
             total_files += result.extracted
-            console.print(f"{archive.name}: {result.extracted} file(s)")
             for name, reason in result.skipped:
                 console.print(f"  [yellow]skipped[/yellow] {name} ({reason})")
+
+            # Catalogue what came out while it is on disk, so `status` is meaningful
+            # immediately and the sidecar pairing is recorded before anything mutates.
+            found = discover_module.discover_archive(state, archive.name, result.destination)
+            total_media += found.media
+            total_unmatched += found.unmatched
+            console.print(
+                f"{archive.name}: {result.extracted} file(s), "
+                f"{found.media} media, {found.matched} with metadata"
+            )
 
         console.print(
             f"[green]Extracted {total_files} file(s) from {len(ready)} archive(s).[/green]"
         )
+        if total_unmatched:
+            console.print(
+                f"[yellow]{total_unmatched} of {total_media} media file(s) have no sidecar[/yellow]"
+                " - they will keep whatever dates they already carry."
+            )
 
 
 @photos_app.command()

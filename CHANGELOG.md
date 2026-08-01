@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `sidecar` — pairs each media file with its Takeout metadata JSON, handling the modern
+  `.supplemental-metadata` form, the legacy and stem-only forms, Google's 46-character
+  truncation, duplicate `(1)` markers, localised `-edited` copies, and live-photo videos
+  that inherit the still image's sidecar.
+- `discover` — walks an unpacked archive and records every media file in the ledger with
+  its sidecar. Unmatched media is recorded too, never dropped, and `photos unpack` now
+  reports how many files have no metadata.
+
 - `ditch-google photos fetch` — lists the Takeout parts in Drive with `rclone lsjson`,
   records them in the ledger and downloads them with a live progress bar. Non-archive
   files such as Takeout's HTML index are ignored. Resumable: already-downloaded parts
@@ -42,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Corrected the sidecar truncation budget from 51 to **46** characters, and clarified that
+  the clip applies to `<media filename>.supplemental-metadata` before `.json` is appended.
+  The earlier figure would have silently failed to match long-named photos, losing their
+  dates and locations.
 - Corrected the documented `proton-drive` commands: sign-in is `auth login` /
   `auth logout`, and the version probe is `version`.
 
