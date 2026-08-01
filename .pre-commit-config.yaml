@@ -1,0 +1,40 @@
+# Install with:
+#   uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.7
+          - pydantic-settings>=2.3
+          - typer>=0.12
+          - pytest>=8.2
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.1.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
