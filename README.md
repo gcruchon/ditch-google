@@ -61,7 +61,7 @@ Three external tools, detected but never bundled. Run `ditch-google doctor` to c
 |---|---|---|
 | [`rclone`](https://rclone.org/) | Download the Takeout export from Google Drive | `brew install rclone` |
 | [`exiftool`](https://exiftool.org/) | Write metadata back into the files | `brew install exiftool` |
-| [`proton-drive`](https://proton.me/blog/proton-drive-cli) **≥ 0.7.0** | Upload to Proton Photos | [Proton Drive downloads](https://proton.me/drive/download) |
+| [`proton-drive`](https://proton.me/blog/proton-drive-cli) **≥ 0.7.0** | Upload to Proton Photos | [Proton Drive downloads](https://proton.me/download/drive/cli/index.html) |
 
 `proton-drive` v0.7.0 is the first release with photo and album commands. Earlier versions
 will not work.
@@ -80,7 +80,7 @@ uv tool install ditch-google      # or: pipx install ditch-google
 
 # 2. Configure rclone for Google Drive, and sign in to Proton.
 rclone config          # create a "drive" remote
-proton-drive login     # opens your browser; no password on the command line
+proton-drive auth login     # opens your browser; no password on the command line
 
 # 3. Check everything is ready.
 ditch-google doctor

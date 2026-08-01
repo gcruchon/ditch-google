@@ -6,6 +6,9 @@ stage as it is implemented.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -67,9 +70,41 @@ def test_unimplemented_stage_exits_cleanly(stage: str) -> None:
     assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
-def test_doctor_is_registered() -> None:
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 2
+def test_doctor_passes_when_all_tools_are_healthy(all_tools_healthy: None, tmp_path: Path) -> None:
+    result = runner.invoke(app, ["doctor", "--work-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "proton-drive" in result.stdout
+
+
+def test_doctor_exits_nonzero_when_a_tool_is_missing(fake_bin: Path, tmp_path: Path) -> None:
+    """doctor is meant to be usable as a gate in a script, so failure must be an exit code."""
+    result = runner.invoke(app, ["doctor", "--work-dir", str(tmp_path)])
+    assert result.exit_code == 1
+
+
+def test_doctor_shows_the_remedy_for_a_failure(fake_bin: Path, tmp_path: Path) -> None:
+    result = runner.invoke(app, ["doctor", "--work-dir", str(tmp_path)])
+    assert "rclone.org/install" in result.stdout
+
+
+def test_doctor_json_output_is_machine_readable(all_tools_healthy: None, tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["doctor", "--work-dir", str(tmp_path), "--json"],
+        env={"FORCE_COLOR": "1", "TERM": "xterm-256color"},
+    )
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.stdout
+
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert {c["name"] for c in payload["checks"]} >= {"rclone", "exiftool", "proton-drive"}
+
+
+def test_doctor_json_reports_not_ok_on_failure(fake_bin: Path, tmp_path: Path) -> None:
+    result = runner.invoke(app, ["doctor", "--work-dir", str(tmp_path), "--json"])
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["ok"] is False
 
 
 def test_unknown_command_is_an_error() -> None:

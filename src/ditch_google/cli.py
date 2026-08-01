@@ -7,12 +7,17 @@ that are not implemented yet exit with a clear message rather than pretending to
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 from ditch_google import __version__
+from ditch_google import doctor as doctor_module
+from ditch_google.doctor import Check, Status
 
 # `console` is for human-facing output only. Anything a script might parse - version
 # strings, `--json` payloads - goes through `typer.echo`, which emits plain text. rich
@@ -58,10 +63,69 @@ def main(
     """Migrate your data out of Google and into Proton."""
 
 
+_STATUS_MARK = {Status.OK: "[green]OK[/green]", Status.WARN: "[yellow]WARN[/yellow]"}
+
+
+def _render_checks(checks: list[Check]) -> None:
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail")
+
+    for check in checks:
+        table.add_row(
+            check.name,
+            _STATUS_MARK.get(check.status, "[red]FAIL[/red]"),
+            check.detail,
+        )
+    console.print(table)
+
+    for check in checks:
+        if check.remedy and check.status is not Status.OK:
+            console.print(f"  [dim]{check.name}:[/dim] {check.remedy}")
+
+
 @app.command()
-def doctor() -> None:
+def doctor(
+    work_dir: Annotated[
+        Path,
+        typer.Option("--work-dir", help="Directory used to stage archives during migration."),
+    ] = Path("./work"),
+    source: Annotated[
+        str | None,
+        typer.Option("--source", help="Takeout location to verify, e.g. drive:Takeout."),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable results."),
+    ] = False,
+) -> None:
     """Check that rclone, exiftool and proton-drive are installed and ready."""
-    _not_yet("doctor")
+    checks = doctor_module.run_checks(work_dir=work_dir, source=source)
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": not any(c.failed for c in checks),
+                    "checks": [
+                        {
+                            "name": c.name,
+                            "status": c.status.value,
+                            "detail": c.detail,
+                            "remedy": c.remedy,
+                        }
+                        for c in checks
+                    ],
+                },
+                indent=2,
+            )
+        )
+    else:
+        _render_checks(checks)
+
+    if any(check.failed for check in checks):
+        raise typer.Exit(code=1)
 
 
 @photos_app.command()
