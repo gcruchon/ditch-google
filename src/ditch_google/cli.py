@@ -18,13 +18,18 @@ from rich.table import Table
 from ditch_google import __version__
 from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
+from ditch_google.state import State, default_state_path
 
 # `console` is for human-facing output only. Anything a script might parse - version
 # strings, `--json` payloads - goes through `typer.echo`, which emits plain text. rich
 # applies syntax highlighting to values like version numbers, which injects ANSI escapes
 # into stdout whenever colour is forced (as it is on CI).
-console = Console()
-err_console = Console(stderr=True)
+#
+# `highlight=False` because rich's automatic highlighter marks up values it finds inside
+# prose - numbers, paths, URLs - which both looks wrong mid-sentence (a cyan "1" inside a
+# yellow warning) and splits the sentence with escape codes. Explicit markup still works.
+console = Console(highlight=False)
+err_console = Console(stderr=True, highlight=False)
 
 app = typer.Typer(
     name="ditch-google",
@@ -171,9 +176,62 @@ def verify() -> None:
 
 
 @photos_app.command()
-def status() -> None:
+def status(
+    state_db: Annotated[
+        Path | None,
+        typer.Option("--state-db", help="Ledger location. Defaults to the XDG state directory."),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable results."),
+    ] = False,
+) -> None:
     """Show migration progress from the state database."""
-    _not_yet("status")
+    path = state_db or default_state_path()
+    if not path.exists():
+        if as_json:
+            typer.echo(json.dumps({"started": False, "state_db": str(path)}, indent=2))
+        else:
+            console.print(f"No migration has been started yet ([dim]{path}[/dim] does not exist).")
+        return
+
+    with State.open(path) as state:
+        items = state.item_counts()
+        archives = state.archive_counts()
+        complete = state.is_complete()
+        unmatched = len(state.items_without_sidecar())
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "started": True,
+                    "state_db": str(path),
+                    "complete": complete,
+                    "archives": archives,
+                    "items": items,
+                    "items_without_sidecar": unmatched,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Stage")
+    table.add_column("Archives", justify="right")
+    table.add_column("Items", justify="right")
+    for stage in sorted(set(archives) | set(items)):
+        table.add_row(
+            stage,
+            str(archives.get(stage, "-")),
+            str(items.get(stage, "-")),
+        )
+    console.print(table)
+
+    if unmatched:
+        console.print(f"[yellow]{unmatched} item(s) have no matching sidecar.[/yellow]")
+    console.print("[green]Migration complete.[/green]" if complete else "Migration in progress.")
 
 
 if __name__ == "__main__":  # pragma: no cover
