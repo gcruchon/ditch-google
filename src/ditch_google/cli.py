@@ -14,6 +14,10 @@ from rich.console import Console
 
 from ditch_google import __version__
 
+# `console` is for human-facing output only. Anything a script might parse - version
+# strings, `--json` payloads - goes through `typer.echo`, which emits plain text. rich
+# applies syntax highlighting to values like version numbers, which injects ANSI escapes
+# into stdout whenever colour is forced (as it is on CI).
 console = Console()
 err_console = Console(stderr=True)
 
@@ -34,7 +38,7 @@ app.add_typer(photos_app)
 
 def _version_callback(value: bool) -> None:
     if value:
-        console.print(f"ditch-google {__version__}")
+        typer.echo(f"ditch-google {__version__}")
         raise typer.Exit
 
 

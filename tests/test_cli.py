@@ -29,7 +29,19 @@ PHOTO_STAGES = [
 def test_version_flag_prints_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert __version__ in result.stdout
+    assert result.stdout == f"ditch-google {__version__}\n"
+
+
+def test_version_output_is_plain_text_even_when_colour_is_forced() -> None:
+    """`--version` is parsed by scripts, so it must never carry ANSI escapes.
+
+    Regression: printing it via `rich` syntax-highlighted the version number, which
+    injected escape codes whenever colour was forced - as it is on CI via FORCE_COLOR.
+    """
+    result = runner.invoke(app, ["--version"], env={"FORCE_COLOR": "1", "TERM": "xterm-256color"})
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.stdout
+    assert result.stdout == f"ditch-google {__version__}\n"
 
 
 def test_bare_invocation_shows_help() -> None:

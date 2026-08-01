@@ -99,7 +99,10 @@ internals. Renaming an internal function is `refactor:`, not a breaking change.
 
 - **Type annotations everywhere.** `mypy --strict` must pass.
 - **`ruff` for lint and format.** Line length 100.
-- **No `print`.** Use `rich` / the logger, so `--json` output stays machine-readable.
+- **No `print`.** Use `rich`'s `console` for human-facing output, and **`typer.echo` for
+  anything a script might parse** — version strings, `--json` payloads. rich
+  syntax-highlights values like version numbers, which injects ANSI escapes into stdout
+  whenever colour is forced (as it is on CI).
 - **Never log a credential**, a token, or a full Proton session identifier.
 - **Subprocess calls go through `proc.py`** — don't call `subprocess` directly, so timeouts,
   streaming and error handling stay consistent.
