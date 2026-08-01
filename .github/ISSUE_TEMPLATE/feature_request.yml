@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a capability or another Google service to support
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation you're stuck in, not just the feature you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Google Photos migration
+        - A different Google service (Drive, Contacts, Calendar, Mail...)
+        - Metadata handling
+        - Albums
+        - CLI ergonomics / output
+        - Performance
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Including Proton's own import tools, if relevant.

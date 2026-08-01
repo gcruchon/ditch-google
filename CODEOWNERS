@@ -1,0 +1,10 @@
+# Default owner for everything in the repo.
+*                       @gcruchon
+
+# Release, CI and security surfaces always need owner review.
+/.github/               @gcruchon
+/SECURITY.md            @gcruchon
+/pyproject.toml         @gcruchon
+
+# Architecture decisions are deliberately hard to change.
+/docs/adr/              @gcruchon

@@ -1,0 +1,83 @@
+name: Bug report
+description: Something went wrong during a migration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Please don't paste credentials, Proton session
+        identifiers, or real photos.** Redact personal data from any JSON you include.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: shell
+      placeholder: ditch-google photos migrate --source drive:Takeout
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `ditch-google doctor`
+      description: This captures your tool versions. Safe to paste - it contains no credentials.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Which stage failed?
+      options:
+        - fetch (downloading from Google Drive)
+        - unpack (extracting the Takeout archives)
+        - fix (writing metadata with exiftool)
+        - upload (sending to Proton Photos)
+        - albums (recreating albums)
+        - verify
+        - not sure
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 14.3 (Apple Silicon)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ditch-google version
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Re-run with `--verbose` if you can.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have redacted any personal data from this report
+          required: true
+        - label: I am using `proton-drive` v0.7.0 or later
+          required: false

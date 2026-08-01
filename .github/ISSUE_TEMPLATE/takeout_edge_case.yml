@@ -1,0 +1,74 @@
+name: Takeout edge case
+description: A photo whose sidecar metadata wasn't matched or applied correctly
+labels: ["takeout-edge-case", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Google's Takeout format is inconsistent and undocumented, so these reports are the
+        single most useful contribution to this project.
+
+        **We only need the filenames and the JSON structure — never the photo itself.**
+        Please redact GPS coordinates, people's names and descriptions; we care about
+        *which fields are present*, not their values.
+
+  - type: input
+    id: media-filename
+    attributes:
+      label: Media filename
+      description: Exactly as it appears in the export, including any (1) or -edited suffix.
+      placeholder: IMG_20230715_142233(1).jpg
+    validations:
+      required: true
+
+  - type: input
+    id: sidecar-filename
+    attributes:
+      label: Sidecar JSON filename
+      description: If there is no sidecar at all, write "none".
+      placeholder: IMG_20230715_142233.jpg(1).supplemental-metadata.json
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What went wrong?
+      options:
+        - The sidecar wasn't matched to the media file at all
+        - It was matched, but to the wrong media file
+        - It matched, but the date came out wrong
+        - It matched, but the GPS location is missing or wrong
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: json
+    attributes:
+      label: Sidecar JSON (redacted)
+      description: Replace real values with placeholders. We need the shape, not the data.
+      render: json
+      placeholder: |
+        {
+          "title": "IMG_20230715_142233.jpg",
+          "photoTakenTime": { "timestamp": "1689430953" },
+          "geoData": { "latitude": 0.0, "longitude": 0.0 },
+          "geoDataExif": { "latitude": 48.85, "longitude": 2.35 }
+        }
+
+  - type: input
+    id: album
+    attributes:
+      label: Which Takeout folder was it in?
+      placeholder: Photos from 2023  /  or an album name
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have redacted personal data (coordinates, names, descriptions)
+          required: true
+        - label: I have not attached the photo itself
+          required: true
