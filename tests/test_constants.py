@@ -19,8 +19,10 @@ def test_proton_drive_floor_is_the_release_that_added_photos() -> None:
 
 
 def test_sidecar_filename_budget() -> None:
-    """Google truncates sidecar JSON filenames to 51 characters.
+    """Google clips `<media filename>.supplemental-metadata` to 46 characters.
 
-    The matcher's truncation strategy depends on this exact value.
+    `.json` is appended afterwards and is never clipped, so a sidecar name is at most
+    46 + len(".json"). The matcher's truncation strategy depends on this exact value:
+    get it wrong and long-named photos silently lose their dates and locations.
     """
-    assert constants.SIDECAR_FILENAME_BUDGET == 51
+    assert constants.SIDECAR_FILENAME_BUDGET == 46

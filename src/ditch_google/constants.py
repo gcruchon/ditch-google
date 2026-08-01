@@ -18,8 +18,9 @@ RCLONE_MIN_VERSION: Final = (1, 60, 0)
 #: exiftool ``-stay_open`` batch mode has been stable for far longer than this.
 EXIFTOOL_MIN_VERSION: Final = (12, 0)
 
-#: Google truncates ``<filename><suffix>.json`` sidecar names to this many characters.
-#: See docs/adr/0001-why-not-rclone-gphotos.md and src/ditch_google/photos/sidecar.py
-SIDECAR_FILENAME_BUDGET: Final = 51
+#: Google clips a sidecar name to this many characters *before* appending ``.json``,
+#: which is never clipped. So the budget covers ``<media filename>.supplemental-metadata``.
+#: See src/ditch_google/photos/sidecar.py for the full derivation and its edge cases.
+SIDECAR_FILENAME_BUDGET: Final = 46
 
 APP_NAME: Final = "ditch-google"

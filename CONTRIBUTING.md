@@ -26,8 +26,9 @@ uv run mypy
 ```
 
 You do **not** need `rclone`, `exiftool` or `proton-drive` installed to work on most of the
-codebase. Tests use stub binaries from `tests/fake_bin/`. Tests that need the real thing are
-marked and skipped automatically:
+codebase. The `fake_tool` fixture in [`tests/conftest.py`](tests/conftest.py) generates stub
+binaries per test, so each one controls exactly what its tool prints and exits with. Tests
+that need the real thing are marked and skipped automatically:
 
 ```bash
 uv run pytest -m "not requires_exiftool and not requires_rclone and not requires_proton"
@@ -69,7 +70,7 @@ We follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/):
 Real examples from this repo:
 
 ```
-feat(sidecar): match sidecars truncated to the 51-character budget
+feat(sidecar): match sidecars truncated to the 46-character budget
 fix(metadata): fall back to geoDataExif when geoData is zeroed
 docs(adr): record why rclone's gphotos backend is unusable
 test(sidecar): add fixtures for motion-photo pairing
@@ -110,10 +111,12 @@ internals. Renaming an internal function is `refactor:`, not a breaking change.
 ## Testing expectations
 
 - New behaviour needs a test. Bug fixes need a regression test.
-- `sidecar.py` has the highest bar in the repo: every naming variant you handle needs a
-  fixture in `tests/fixtures/takeout/` and an explicit case. If you've seen a real Takeout
-  filename we don't match, **a fixture PR alone is a genuinely valuable contribution** —
-  you don't have to write the matcher.
+- [`sidecar.py`](src/ditch_google/photos/sidecar.py) has the highest bar in the repo:
+  every naming variant it handles has an explicit case in
+  [`tests/test_sidecar.py`](tests/test_sidecar.py). If you've seen a real Takeout filename
+  we don't match, **a failing test case alone is a genuinely valuable contribution** —
+  you don't have to write the matcher. Give the media filename and the sidecar filename
+  exactly as they appear.
 - Never make a test hit the network or a real Proton account.
 
 ## Reporting Takeout edge cases
