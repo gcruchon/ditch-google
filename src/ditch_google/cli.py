@@ -23,13 +23,14 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from ditch_google import __version__, proc
+from ditch_google import __version__, proc, protondrive
 from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
 from ditch_google.photos import discover as discover_module
 from ditch_google.photos import fetch as fetch_module
 from ditch_google.photos import fix as fix_module
 from ditch_google.photos import unpack as unpack_module
+from ditch_google.photos import upload as upload_module
 from ditch_google.photos.unpack import UnsafeArchiveMemberError
 from ditch_google.state import ArchiveStage, ItemStage, State, default_state_path
 
@@ -314,9 +315,64 @@ def fix(
 
 
 @photos_app.command()
-def upload() -> None:
+def upload(
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    conflict: Annotated[
+        str,
+        typer.Option(
+            "--conflict-strategy",
+            help="What to do about photos already in Proton: skip or keep-both.",
+        ),
+    ] = "skip",
+    batch_size: Annotated[
+        int, typer.Option("--batch-size", help="Files per proton-drive invocation.")
+    ] = upload_module.DEFAULT_BATCH_SIZE,
+) -> None:
     """Upload media to the Proton Photos timeline."""
-    _not_yet("upload")
+    if conflict not in protondrive.CONFLICT_STRATEGIES:
+        err_console.print(
+            f"[red]--conflict-strategy must be one of "
+            f"{', '.join(protondrive.CONFLICT_STRATEGIES)}.[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    with State.open(state_db or default_state_path()) as state:
+        pending = [i for i in state.pending_items() if i.stage is ItemStage.FIXED]
+        if not pending:
+            console.print("Nothing to upload. Run [bold]photos fix[/bold] first.")
+            return
+
+        try:
+            with Progress(
+                TextColumn("[bold]uploading to Proton"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("upload", total=len(pending))
+                result = upload_module.upload_pending(
+                    state,
+                    conflict=conflict,
+                    batch_size=batch_size,
+                    on_progress=lambda done, _total: progress.update(task, completed=done),
+                )
+        except proc.ToolNotFoundError as exc:
+            err_console.print(f"[red]{exc}[/red] Run [bold]ditch-google doctor[/bold].")
+            raise typer.Exit(code=1) from exc
+        except proc.ToolFailedError as exc:
+            err_console.print(f"[red]Upload failed:[/red] {exc}")
+            err_console.print("If you are not signed in, run: [bold]proton-drive auth login[/bold]")
+            raise typer.Exit(code=1) from exc
+
+        console.print(f"[green]Uploaded {result.uploaded} photo(s).[/green]")
+        if result.already_present:
+            console.print(f"{result.already_present} were already in Proton and were skipped.")
+        if result.failed:
+            err_console.print(
+                f"[yellow]{result.failed} photo(s) failed.[/yellow] See [bold]photos status[/bold]."
+            )
+            raise typer.Exit(code=1)
 
 
 @photos_app.command()

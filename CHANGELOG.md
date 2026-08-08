@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google photos upload` — uploads fixed media into the Proton Photos timeline via
+  the official CLI, in batches, recording per-file outcomes in the ledger. Resume is safe:
+  Proton de-duplicates on name plus SHA1, so re-running skips photos already there.
+- `protondrive` — wrapper around every `proton-drive` command the pipeline uses.
+
 - `ditch-google photos fix` — writes sidecar metadata back into the media files with
   exiftool: capture time (with an explicit UTC offset), GPS, description and tagged
   people, plus QuickTime tags for video and the file's modification time. This is what
@@ -58,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exiftool` or `proton-drive` installed.
 
 ### Fixed
+
+- **Photos no longer land in the Proton timeline at the wrong time.** Capture times were
+  written as UTC with an explicit `OffsetTimeOriginal`, but Proton ignores that tag and
+  reads `DateTimeOriginal` as local time — shifting every photo by the migrating
+  machine's UTC offset, and onto the wrong calendar day for anyone far enough from UTC.
+  Timestamps are now written as local wall-clock time with the matching offset. Found by
+  testing against a real Proton account.
 
 - Corrected the sidecar truncation budget from 51 to **46** characters, and clarified that
   the clip applies to `<media filename>.supplemental-metadata` before `.json` is appended.

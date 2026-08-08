@@ -21,7 +21,9 @@ FakeTool = Callable[..., Path]
 #: What a real `proton-drive version` prints. The name before `@` varies by build
 #: (`cli-drive`, `external-drive-sdkclijs`, `cli-drive-<distro>`), which is why the
 #: version parser keys off the `@` rather than the surrounding text.
-PROTON_VERSION_OUTPUT = "Proton Drive CLI cli-drive@0.7.0\nProton Drive SDK js@0.15.1"
+PROTON_VERSION_OUTPUT = (
+    "Proton Drive CLI cli-drive@0.7.0+5174900c\nProton Drive SDK js@0.20.0+5174900c"
+)
 
 #: What a real `rclone version` prints, first line only plus a representative tail.
 RCLONE_VERSION_OUTPUT = "rclone v1.74.2\n- os/version: darwin 14.3.1 (64 bit)"

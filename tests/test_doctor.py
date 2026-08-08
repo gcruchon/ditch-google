@@ -29,6 +29,9 @@ from tests.conftest import (
         # The proton-drive build name varies; the parser must key off the version, not
         # the prefix. Source builds and distro repackages use different names.
         ("Proton Drive CLI external-drive-sdkclijs@0.7.1", (0, 7, 1)),
+        # Verbatim from the official 0.7.0 macOS build: the version carries a `+<commit>`
+        # build suffix, which must not be read as part of the version.
+        ("Proton Drive CLI cli-drive@0.7.0+5174900c", (0, 7, 0)),
         ("Proton Drive CLI cli-drive-arch@1.0.0", (1, 0, 0)),
         # Two-part versions are padded.
         ("exiftool 12.76", (12, 76, 0)),
