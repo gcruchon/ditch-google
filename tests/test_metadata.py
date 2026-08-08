@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -156,13 +157,47 @@ def test_no_args_when_there_is_nothing_to_write() -> None:
     assert build_exiftool_args(SidecarData(), Path("IMG.jpg")) == []
 
 
-def test_timestamp_args_include_an_explicit_offset() -> None:
-    """Takeout gives an instant, not a wall-clock time; the offset removes the ambiguity."""
+def test_timestamp_is_written_as_local_wall_clock_time() -> None:
+    """Regression: Proton ignores OffsetTimeOriginal and reads DateTimeOriginal as local.
+
+    Writing the instant as UTC shifted every photo in the Proton timeline by the
+    migrating machine's UTC offset - verified against a real account, where 13:20Z
+    written on a CEST machine arrived as 11:20Z.
+    """
+    paris = ZoneInfo("Europe/Paris")
     args = build_exiftool_args(
-        SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC)), Path("IMG.jpg")
+        SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC)),
+        Path("IMG.jpg"),
+        timezone=paris,
     )
-    assert "-EXIF:DateTimeOriginal=2019:06:08 13:20:00" in args
-    assert "-EXIF:OffsetTimeOriginal=+00:00" in args
+    # 13:20 UTC is 15:20 in Paris in June (CEST, +02:00).
+    assert "-EXIF:DateTimeOriginal=2019:06:08 15:20:00" in args
+    assert "-EXIF:OffsetTimeOriginal=+02:00" in args
+
+
+def test_timestamp_round_trips_to_the_original_instant() -> None:
+    """The written wall-clock time plus its offset must recover Google's instant."""
+    taken = datetime(2019, 6, 8, 13, 20, tzinfo=UTC)
+    for zone in ("Europe/Paris", "America/Los_Angeles", "Pacific/Auckland", "UTC"):
+        args = build_exiftool_args(
+            SidecarData(taken_at=taken), Path("IMG.jpg"), timezone=ZoneInfo(zone)
+        )
+        stamp = next(a for a in args if a.startswith("-EXIF:DateTimeOriginal="))
+        offset = next(a for a in args if a.startswith("-EXIF:OffsetTimeOriginal="))
+        parsed = datetime.strptime(
+            f"{stamp.split('=', 1)[1]}{offset.split('=', 1)[1]}", "%Y:%m:%d %H:%M:%S%z"
+        )
+        assert parsed == taken, zone
+
+
+def test_a_timezone_can_shift_the_calendar_day() -> None:
+    """For a user in UTC+13 the naive-UTC bug moved photos to the wrong day entirely."""
+    args = build_exiftool_args(
+        SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC)),
+        Path("IMG.jpg"),
+        timezone=ZoneInfo("Pacific/Auckland"),
+    )
+    assert "-EXIF:DateTimeOriginal=2019:06:09 01:20:00" in args
 
 
 def test_video_gets_quicktime_tags_too() -> None:
@@ -252,7 +287,8 @@ def test_write_metadata_sets_date_and_location(jpeg: Path) -> None:
     )
 
     with ExiftoolSession() as session:
-        assert write_metadata(session, jpeg, data)
+        # Pin the zone so the expected wall-clock time is the same on every runner.
+        assert write_metadata(session, jpeg, data, timezone=UTC)
 
     tags = read_tags(
         jpeg, "-DateTimeOriginal", "-GPSLatitude", "-GPSLongitude", "-ImageDescription"
@@ -308,7 +344,10 @@ def test_default_does_clobber_an_existing_date(jpeg: Path) -> None:
             ["-EXIF:DateTimeOriginal=2001:01:01 00:00:00", "-overwrite_original", str(jpeg)]
         )
         write_metadata(
-            session, jpeg, SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC))
+            session,
+            jpeg,
+            SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC)),
+            timezone=UTC,
         )
 
     assert read_tags(jpeg, "-DateTimeOriginal")["DateTimeOriginal"] == "2019:06:08 13:20:00"

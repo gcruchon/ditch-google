@@ -14,11 +14,18 @@ looking at today. Google's own upload pipeline sometimes overwrote a file's orig
 date with the *upload* date, so preferring the embedded value would faithfully reproduce
 Google's mistakes. Pass ``prefer_existing=True`` to fill only the gaps instead.
 
-**Times are written in UTC with an explicit offset.** Takeout gives a Unix timestamp,
-which is an instant, not a local wall-clock time - the original offset is simply not in
-the export. Writing UTC plus ``+00:00`` records an unambiguous instant rather than
-inventing a timezone. A photo taken at 21:00 in Lisbon may therefore display as 20:00 UTC
-in viewers that ignore the offset.
+**Times are written as local wall-clock time, not UTC.** This is not the obvious choice
+and was corrected after testing against a real Proton account. Takeout gives a Unix
+timestamp - an instant - and the original capture timezone is not in the export. Writing
+that instant as UTC with an explicit ``OffsetTimeOriginal=+00:00`` looked like the honest
+option, but Proton's SDK **ignores the offset tag** and interprets ``DateTimeOriginal`` as
+local time. A photo written as ``13:20`` UTC on a machine in CEST arrived in the Proton
+timeline at ``11:20Z`` - shifted by the migrating machine's UTC offset, which for a user
+in UTC+13 would move photos to the wrong day.
+
+So the timestamp is converted to a wall-clock time in a chosen timezone (the machine's by
+default, overridable) and the matching offset is written alongside. Proton then recovers
+the correct instant, and readers that do honour offsets still see an unambiguous value.
 """
 
 from __future__ import annotations
@@ -27,7 +34,7 @@ import contextlib
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -144,19 +151,27 @@ def load_sidecar(path: Path) -> SidecarData:
     return parse_sidecar(payload)
 
 
-def _time_args(data: SidecarData, *, is_video: bool) -> list[str]:
+def _time_args(data: SidecarData, *, is_video: bool, timezone: tzinfo | None = None) -> list[str]:
     if data.taken_at is None:
         return []
 
-    stamp = data.taken_at.strftime("%Y:%m:%d %H:%M:%S")
+    # Convert the instant to wall-clock time in the target zone. Proton reads
+    # DateTimeOriginal as local time and ignores the offset tag, so writing UTC here
+    # shifts every photo by the machine's offset. See this module's docstring.
+    local = data.taken_at.astimezone(timezone)
+    stamp = local.strftime("%Y:%m:%d %H:%M:%S")
+    offset = local.strftime("%z")
+    offset = f"{offset[:3]}:{offset[3:]}" if offset else "+00:00"
+
     args = [
         f"-EXIF:DateTimeOriginal={stamp}",
         f"-EXIF:CreateDate={stamp}",
         f"-EXIF:ModifyDate={stamp}",
         f"-XMP:DateCreated={stamp}",
-        # Without an offset the timestamp is ambiguous; Takeout only gives an instant.
-        "-EXIF:OffsetTimeOriginal=+00:00",
-        "-EXIF:OffsetTimeDigitized=+00:00",
+        # Recorded so the file is self-describing for readers that do honour it, even
+        # though Proton does not.
+        f"-EXIF:OffsetTimeOriginal={offset}",
+        f"-EXIF:OffsetTimeDigitized={offset}",
     ]
     if is_video:
         # EXIF tags are not read from most containers; QuickTime atoms are.
@@ -208,6 +223,7 @@ def build_exiftool_args(
     media: Path,
     *,
     prefer_existing: bool = False,
+    timezone: tzinfo | None = None,
 ) -> list[str]:
     """Build the exiftool arguments that write ``data`` into ``media``.
 
@@ -218,7 +234,7 @@ def build_exiftool_args(
         return []
 
     args = [
-        *_time_args(data, is_video=media.suffix.lower() in VIDEO_SUFFIXES),
+        *_time_args(data, is_video=media.suffix.lower() in VIDEO_SUFFIXES, timezone=timezone),
         *_location_args(data),
         *_text_args(data),
     ]
@@ -248,6 +264,7 @@ def write_metadata(
     data: SidecarData,
     *,
     prefer_existing: bool = False,
+    timezone: tzinfo | None = None,
 ) -> bool:
     """Write ``data`` into ``media``. Returns whether anything was written.
 
@@ -257,7 +274,7 @@ def write_metadata(
     Raises:
         ExiftoolError: exiftool refused the write.
     """
-    args = build_exiftool_args(data, media, prefer_existing=prefer_existing)
+    args = build_exiftool_args(data, media, prefer_existing=prefer_existing, timezone=timezone)
     if not args:
         return False
 
