@@ -28,6 +28,7 @@ from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import Self
+from uuid import uuid4
 
 from ditch_google.constants import APP_NAME
 
@@ -145,6 +146,14 @@ _MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (album_id, item_id)
     );
     """,
+    # A stable identity for the migration, so a run stays findable after the fact - in
+    # the files themselves (stamped into XMP) and in Proton (as a marker album).
+    """
+    CREATE TABLE meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    """,
 )
 
 
@@ -232,6 +241,40 @@ class State:
             raise
         else:
             self._db.execute("COMMIT")
+
+    # ----------------------------------------------------------------------- meta
+
+    def get_meta(self, key: str) -> str | None:
+        row = self._db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return str(row["value"]) if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+    @property
+    def migration_id(self) -> str:
+        """A short, stable identity for this migration, created on first use.
+
+        Stamped into the files and used to name the marker album, so a run remains
+        findable afterwards even without this database.
+        """
+        existing = self.get_meta("migration_id")
+        if existing is not None:
+            return existing
+        created = uuid4().hex[:12]
+        self.set_meta("migration_id", created)
+        self.set_meta("started_at", _now())
+        return created
+
+    @property
+    def started_at(self) -> str:
+        """When the migration first ran. Triggers creation of the id if not yet set."""
+        _ = self.migration_id
+        return self.get_meta("started_at") or _now()
 
     # ------------------------------------------------------------------- archives
 

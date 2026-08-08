@@ -47,6 +47,10 @@ def fix_pending(
     if not pending:
         return result
 
+    # Stamped into every file so this migration stays identifiable afterwards, even
+    # without the ledger and outside Proton.
+    migration_id = state.migration_id
+
     with ExiftoolSession() as session:
         for index, item in enumerate(pending, start=1):
             media = Path(item.source_path)
@@ -60,7 +64,11 @@ def fix_pending(
                 data = metadata_module.load_sidecar(Path(item.sidecar_path))
                 try:
                     wrote = metadata_module.write_metadata(
-                        session, media, data, prefer_existing=prefer_existing
+                        session,
+                        media,
+                        data,
+                        prefer_existing=prefer_existing,
+                        migration_id=migration_id,
                     )
                 except ExiftoolError as exc:
                     state.set_item_stage(

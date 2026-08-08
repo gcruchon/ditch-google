@@ -398,3 +398,44 @@ def test_failures_are_detected_consistently_across_many_writes(tmp_path: Path) -
                 failures += 1
 
     assert failures == 10
+
+
+def test_stamp_args_do_not_touch_the_camera_software_tag() -> None:
+    """`EXIF:Software` holds the camera's firmware; bookkeeping must not overwrite it."""
+    args = build_exiftool_args(SidecarData(description="x"), Path("IMG.jpg"), migration_id="abc123")
+    assert not any(arg.startswith("-EXIF:Software") for arg in args)
+    assert any("HistorySoftwareAgent" in arg for arg in args)
+
+
+def test_no_stamp_without_a_migration_id() -> None:
+    args = build_exiftool_args(SidecarData(description="x"), Path("IMG.jpg"))
+    assert not any("History" in arg for arg in args)
+
+
+@needs_exiftool
+def test_write_metadata_forwards_the_migration_id_to_the_file(jpeg: Path) -> None:
+    """Regression: `write_metadata` accepted `migration_id` but never passed it on.
+
+    The argument builder was correct and unit-tested, so only asserting on the file
+    itself caught this - the parameter was optional, so nothing else complained.
+    """
+    with ExiftoolSession() as session:
+        write_metadata(
+            session,
+            jpeg,
+            SidecarData(taken_at=datetime(2019, 6, 8, 13, 20, tzinfo=UTC)),
+            migration_id="deadbeef1234",
+        )
+
+    agent = read_tags(jpeg, "-HistorySoftwareAgent")["HistorySoftwareAgent"]
+    assert "deadbeef1234" in agent
+    assert "ditch-google" in agent
+
+
+@needs_exiftool
+def test_the_stamp_preserves_an_existing_camera_software_tag(jpeg: Path) -> None:
+    with ExiftoolSession() as session:
+        session.execute(["-EXIF:Software=ACME Camera v2", "-overwrite_original", str(jpeg)])
+        write_metadata(session, jpeg, SidecarData(description="x"), migration_id="deadbeef1234")
+
+    assert read_tags(jpeg, "-Software")["Software"] == "ACME Camera v2"

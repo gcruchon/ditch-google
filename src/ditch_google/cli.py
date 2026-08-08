@@ -26,12 +26,17 @@ from rich.table import Table
 from ditch_google import __version__, proc, protondrive
 from ditch_google import doctor as doctor_module
 from ditch_google.doctor import Check, Status
+from ditch_google.photos import albums as albums_module
 from ditch_google.photos import discover as discover_module
 from ditch_google.photos import fetch as fetch_module
 from ditch_google.photos import fix as fix_module
+from ditch_google.photos import report as report_module
 from ditch_google.photos import unpack as unpack_module
 from ditch_google.photos import upload as upload_module
+from ditch_google.photos import verify as verify_module
+from ditch_google.photos.report import Report
 from ditch_google.photos.unpack import UnsafeArchiveMemberError
+from ditch_google.photos.verify import VerifyResult
 from ditch_google.state import ArchiveStage, ItemStage, State, default_state_path
 
 # `console` is for human-facing output only. Anything a script might parse - version
@@ -145,6 +150,60 @@ def doctor(
 
     if any(check.failed for check in checks):
         raise typer.Exit(code=1)
+
+
+def _render_report(report: Report, remote: VerifyResult | None) -> None:
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("")
+    table.add_column("Total", justify="right")
+    table.add_column("Done", justify="right")
+    table.add_column("Failed", justify="right")
+
+    table.add_row(
+        "archives",
+        str(report.archives_total),
+        str(report.archives_completed),
+        str(report.archives_failed),
+    )
+    table.add_row(
+        "photos", str(report.items_total), str(report.items_uploaded), str(report.items_failed)
+    )
+    table.add_row("albums", str(report.albums_total), "", str(report.albums_incomplete))
+    console.print(table)
+
+    if report.without_sidecar:
+        console.print(
+            f"[yellow]{report.without_sidecar} file(s) had no sidecar[/yellow] - they keep "
+            "whatever dates they already carried."
+        )
+    if report.items_pending:
+        console.print(f"[yellow]{report.items_pending} item(s) still pending.[/yellow]")
+
+    for name, error in report.failures:
+        console.print(f"  [red]{name}[/red]: {error}")
+
+    if remote is not None:
+        if not remote.checked:
+            console.print("[yellow]Could not reach Proton, so nothing was verified.[/yellow]")
+        elif remote.missing_capture_times:
+            console.print(
+                f"[red]{len(remote.missing_capture_times)} photo(s) are missing from the "
+                "Proton timeline.[/red]"
+            )
+        else:
+            console.print(
+                f"[green]Matched {remote.matched_capture_times} photo(s) in the timeline"
+                f"[/green] of {remote.timeline_total}."
+            )
+
+    console.print(
+        f"[dim]migration {report.migration_id}, started {report.started_at}[/dim]",
+    )
+    console.print(
+        "[green]Nothing was left behind.[/green]"
+        if report.clean
+        else "[yellow]Some items did not complete - see above.[/yellow]"
+    )
 
 
 @photos_app.command()
@@ -376,15 +435,88 @@ def upload(
 
 
 @photos_app.command()
-def albums() -> None:
+def albums(
+    work_dir: Annotated[
+        Path, typer.Option("--work-dir", help="Where archives were unpacked.")
+    ] = Path("./work"),
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    marker: Annotated[
+        bool,
+        typer.Option(
+            "--marker-album/--no-marker-album",
+            help="Also create one album holding everything this migration uploaded.",
+        ),
+    ] = True,
+) -> None:
     """Recreate Takeout albums in Proton Photos."""
-    _not_yet("albums")
+    with State.open(state_db or default_state_path()) as state:
+        roots = [work_dir / "unpacked" / archive.name for archive in state.archives()]
+        try:
+            with Progress(
+                TextColumn("[bold]restoring albums"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("albums", total=None)
+                result = albums_module.restore_albums(
+                    state,
+                    roots,
+                    marker=marker,
+                    on_progress=lambda done, total: progress.update(
+                        task, completed=done, total=total
+                    ),
+                )
+        except proc.ToolError as exc:
+            err_console.print(f"[red]Albums failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+        console.print(
+            f"[green]{result.created} album(s) created, {result.reused} reused, "
+            f"{result.photos_added} photo(s) added.[/green]"
+        )
+        if marker:
+            console.print(
+                "Everything this run uploaded is also in "
+                f"[bold]{albums_module.marker_album_name(state.migration_id, state.started_at)}"
+                "[/bold]."
+            )
+        for title, error in result.failed:
+            err_console.print(f"  [yellow]{title}:[/yellow] {error}")
+        if result.failed:
+            raise typer.Exit(code=1)
 
 
 @photos_app.command()
-def verify() -> None:
+def verify(
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Emit machine-readable output.")] = False,
+    check_remote: Annotated[
+        bool,
+        typer.Option("--remote/--no-remote", help="Also reconcile against the Proton timeline."),
+    ] = True,
+) -> None:
     """Reconcile what was uploaded against the local ledger."""
-    _not_yet("verify")
+    with State.open(state_db or default_state_path()) as state:
+        report = report_module.build_report(state)
+        remote = verify_module.verify_uploads(state) if check_remote else None
+
+        if as_json:
+            payload = report.as_dict()
+            if remote is not None:
+                payload["remote"] = {
+                    "checked": remote.checked,
+                    "expected": remote.expected,
+                    "timeline_total": remote.timeline_total,
+                    "matched": remote.matched_capture_times,
+                    "missing": remote.missing_capture_times,
+                }
+            typer.echo(json.dumps(payload, indent=2))
+        else:
+            _render_report(report, remote)
+
+        if not report.clean or (remote is not None and not remote.ok):
+            raise typer.Exit(code=1)
 
 
 @photos_app.command()
