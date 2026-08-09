@@ -268,13 +268,30 @@ class State:
         created = uuid4().hex[:12]
         self.set_meta("migration_id", created)
         self.set_meta("started_at", _now())
+        # Recorded once, in local time with its offset, and never recomputed. The marker
+        # album's name is built from this, and that name has to be identical on every
+        # resume - deriving it from the clock or the current zone would let a resumed run
+        # compute a different name and create a second marker album.
+        self.set_meta("started_at_local", datetime.now().astimezone().isoformat(timespec="seconds"))
         return created
 
     @property
     def started_at(self) -> str:
-        """When the migration first ran. Triggers creation of the id if not yet set."""
+        """When the migration first ran, in UTC. Creates the id if not yet set."""
         _ = self.migration_id
         return self.get_meta("started_at") or _now()
+
+    @property
+    def started_at_local(self) -> str:
+        """When the migration first ran, as local time with an offset.
+
+        Used for anything a person reads. Fixed at creation so it never drifts, even if
+        the machine crosses a timezone or a DST boundary mid-migration.
+        """
+        _ = self.migration_id
+        return self.get_meta("started_at_local") or datetime.now().astimezone().isoformat(
+            timespec="seconds"
+        )
 
     # ------------------------------------------------------------------- archives
 

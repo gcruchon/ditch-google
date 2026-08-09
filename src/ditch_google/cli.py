@@ -476,11 +476,8 @@ def albums(
             f"{result.photos_added} photo(s) added.[/green]"
         )
         if marker:
-            console.print(
-                "Everything this run uploaded is also in "
-                f"[bold]{albums_module.marker_album_name(state.migration_id, state.started_at)}"
-                "[/bold]."
-            )
+            name = albums_module.marker_album_name(state.migration_id, state.started_at_local)
+            console.print(f"Everything this run uploaded is also in [bold]{name}[/bold].")
         for title, error in result.failed:
             err_console.print(f"  [yellow]{title}:[/yellow] {error}")
         if result.failed:

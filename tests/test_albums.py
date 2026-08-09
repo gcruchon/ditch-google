@@ -96,9 +96,18 @@ def test_missing_root_is_not_an_error(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------- marker album
 
 
-def test_marker_album_name_includes_the_date_and_id() -> None:
-    name = marker_album_name("abc123def456", "2026-08-08T12:00:00+00:00")
-    assert name == "Imported from Google Photos - 2026-08-08 (abc123def456)"
+def test_marker_album_name_includes_date_time_and_id() -> None:
+    """Two runs on the same day must be tellable apart by something readable."""
+    name = marker_album_name("abc123def456", "2026-08-08T14:32:09+02:00")
+    assert name == "Imported from Google Photos - 2026-08-08 14:32 (abc123def456)"
+
+
+def test_two_runs_on_the_same_day_get_different_album_names() -> None:
+    morning = marker_album_name("aaaaaaaaaaaa", "2026-08-08T09:15:00+02:00")
+    evening = marker_album_name("bbbbbbbbbbbb", "2026-08-08T21:40:00+02:00")
+    assert morning != evening
+    assert "09:15" in morning
+    assert "21:40" in evening
 
 
 def test_marker_album_is_created_and_populated(
@@ -112,7 +121,7 @@ def test_marker_album_is_created_and_populated(
 
     result = restore_albums(state, [tmp_path])
 
-    expected = marker_album_name(state.migration_id, state.started_at)
+    expected = marker_album_name(state.migration_id, state.started_at_local)
     assert state.get_album(expected) is not None
     assert result.photos_added == 1
 
@@ -140,7 +149,7 @@ def test_marker_only_includes_uploaded_items(
 
     restore_albums(state, [tmp_path])
 
-    album = state.get_album(marker_album_name(state.migration_id, state.started_at))
+    album = state.get_album(marker_album_name(state.migration_id, state.started_at_local))
     assert album is not None
     assert [Path(i.source_path).name for i in state.album_members(album.id)] == ["up.jpg"]
 
@@ -245,3 +254,34 @@ def test_photos_not_in_the_ledger_are_ignored(
     fake_tool("proton-drive", stdout="[]")
 
     assert restore_albums(state, [tmp_path], marker=False).photos_added == 0
+
+
+def test_the_marker_name_is_stable_across_runs(tmp_path: Path) -> None:
+    """The name must not change between resumes, or a second marker album appears.
+
+    It is derived from a timestamp fixed once at migration creation, precisely so that
+    the current clock and the current timezone cannot influence it.
+    """
+    db = tmp_path / "photos.db"
+    with State.open(db) as first:
+        original = marker_album_name(first.migration_id, first.started_at_local)
+    with State.open(db) as second:
+        assert marker_album_name(second.migration_id, second.started_at_local) == original
+
+
+def test_the_marker_name_ignores_a_timezone_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Someone migrating across a flight must not end up with two marker albums."""
+    import time
+
+    db = tmp_path / "photos.db"
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    time.tzset()
+    with State.open(db) as first:
+        original = marker_album_name(first.migration_id, first.started_at_local)
+
+    monkeypatch.setenv("TZ", "Pacific/Auckland")
+    time.tzset()
+    with State.open(db) as second:
+        assert marker_album_name(second.migration_id, second.started_at_local) == original

@@ -73,9 +73,18 @@ def marker_album_name(migration_id: str, started_at: str | None = None) -> str:
     photo's ``creationTime`` - which the bulk timeline listing does not even return. A
     marker album gives the run a first-class, visible handle: somewhere to look, and
     something to delete, without needing this tool or its database.
+
+    Includes the time, not just the date, so two runs on the same day are told apart by
+    something a person can read rather than only by the opaque id.
+
+    ``started_at`` must be a **fixed** timestamp recorded once for the migration - see
+    :attr:`State.started_at_local`. Every resume recomputes this name, so anything
+    derived from the current clock would produce a second marker album.
     """
-    day = (started_at or "")[:10] or datetime.now().astimezone().strftime("%Y-%m-%d")
-    return f"Imported from Google Photos - {day} ({migration_id})"
+    stamp = (started_at or "")[:16].replace("T", " ")
+    if len(stamp) < 16:
+        stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+    return f"Imported from Google Photos - {stamp} ({migration_id})"
 
 
 def _read_title(directory: Path) -> str | None:
@@ -175,7 +184,7 @@ def restore_albums(
     result = AlbumResult()
     existing = _existing_titles()
 
-    marker_title = marker_album_name(state.migration_id, state.started_at) if marker else None
+    marker_title = marker_album_name(state.migration_id, state.started_at_local) if marker else None
     total = len(albums) + (1 if marker_title else 0)
 
     for index, album in enumerate(albums, start=1):

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ditch-google photos albums` — recreates Takeout albums in Proton Photos, merging
   albums split across archives and skipping Google's `Photos from <year>` folders.
   Idempotent: existing albums are reused and photos are never added twice.
-- **A marker album per migration** (`Imported from Google Photos - <date> (<id>)`)
+- **A marker album per migration** (`Imported from Google Photos - <date> <time> (<id>)`)
   holding everything one run uploaded. Proton has no upload-batch concept, so this gives
   a run a visible handle in the Proton app — somewhere to look, something to delete —
   without needing this tool or its database.
