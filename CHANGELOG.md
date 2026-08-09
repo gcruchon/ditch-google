@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google photos albums` — recreates Takeout albums in Proton Photos, merging
+  albums split across archives and skipping Google's `Photos from <year>` folders.
+  Idempotent: existing albums are reused and photos are never added twice.
+- **A marker album per migration** (`Imported from Google Photos - <date> <time> (<id>)`)
+  holding everything one run uploaded. Proton has no upload-batch concept, so this gives
+  a run a visible handle in the Proton app — somewhere to look, something to delete —
+  without needing this tool or its database.
+- **An XMP stamp in every processed file** recording the tool, version and migration id,
+  written to XMP Media-Management history so the camera's own `EXIF:Software` is left
+  intact. The stamp travels with the file, outside Proton and beyond the ledger.
+- `ditch-google photos verify` — reconciles the ledger against the Proton timeline and
+  prints the final report, naming everything that did not complete. Supports `--json`.
+
 - `ditch-google photos upload` — uploads fixed media into the Proton Photos timeline via
   the official CLI, in batches, recording per-file outcomes in the ledger. Resume is safe:
   Proton de-duplicates on name plus SHA1, so re-running skips photos already there.
@@ -63,6 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exiftool` or `proton-drive` installed.
 
 ### Fixed
+
+- `photos verify` now promotes confirmed items to `verified` and closes finished
+  archives. Without it, items sat at `uploaded` forever and a successful migration could
+  never report as complete.
+- `write_metadata` accepted a `migration_id` but never passed it to the argument builder,
+  so no file was ever stamped.
 
 - **Photos no longer land in the Proton timeline at the wrong time.** Capture times were
   written as UTC with an explicit `OffsetTimeOriginal`, but Proton ignores that tag and

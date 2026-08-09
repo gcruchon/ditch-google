@@ -30,7 +30,7 @@ PHOTO_STAGES = [
 ]
 
 #: Stages still to be built. Move a name out of here as its PR lands.
-IMPLEMENTED_STAGES = {"status", "fetch", "unpack", "fix", "upload"}
+IMPLEMENTED_STAGES = {"status", "fetch", "unpack", "fix", "upload", "albums", "verify"}
 UNIMPLEMENTED_STAGES = [s for s in PHOTO_STAGES if s not in IMPLEMENTED_STAGES]
 
 

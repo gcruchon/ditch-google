@@ -38,6 +38,8 @@ from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any
 
+from ditch_google import __version__
+from ditch_google.constants import APP_NAME
 from ditch_google.exiftool import ExiftoolError, ExiftoolSession
 
 __all__ = [
@@ -207,6 +209,28 @@ def _location_args(data: SidecarData) -> list[str]:
     return args
 
 
+def _stamp_args(migration_id: str, when: datetime | None = None) -> list[str]:
+    """Record that this file was processed by us, and by which migration.
+
+    Written to XMP Media-Management **history**, which exists for exactly this - a record
+    of what processed a file and when. Deliberately *not* ``EXIF:Software``: that holds
+    the camera's own firmware string, and overwriting it would destroy real metadata to
+    make room for bookkeeping.
+
+    The stamp travels with the file, so a migration stays identifiable even after the
+    ledger is gone and outside Proton entirely.
+    """
+    # %z gives +HHMM for an aware datetime; XMP wants +HH:MM.
+    raw = (when or datetime.now(UTC)).strftime("%Y:%m:%d %H:%M:%S%z")
+    stamped_at = f"{raw[:-2]}:{raw[-2:]}"
+    return [
+        "-XMP-xmpMM:HistoryAction+=edited",
+        f"-XMP-xmpMM:HistorySoftwareAgent+={APP_NAME} {__version__} run {migration_id}",
+        f"-XMP-xmpMM:HistoryWhen+={stamped_at}",
+        "-XMP-xmpMM:HistoryChanged+=metadata",
+    ]
+
+
 def _text_args(data: SidecarData) -> list[str]:
     args: list[str] = []
     if data.description:
@@ -224,6 +248,7 @@ def build_exiftool_args(
     *,
     prefer_existing: bool = False,
     timezone: tzinfo | None = None,
+    migration_id: str | None = None,
 ) -> list[str]:
     """Build the exiftool arguments that write ``data`` into ``media``.
 
@@ -237,6 +262,7 @@ def build_exiftool_args(
         *_time_args(data, is_video=media.suffix.lower() in VIDEO_SUFFIXES, timezone=timezone),
         *_location_args(data),
         *_text_args(data),
+        *(_stamp_args(migration_id) if migration_id else []),
     ]
 
     if not args:
@@ -265,6 +291,7 @@ def write_metadata(
     *,
     prefer_existing: bool = False,
     timezone: tzinfo | None = None,
+    migration_id: str | None = None,
 ) -> bool:
     """Write ``data`` into ``media``. Returns whether anything was written.
 
@@ -274,7 +301,13 @@ def write_metadata(
     Raises:
         ExiftoolError: exiftool refused the write.
     """
-    args = build_exiftool_args(data, media, prefer_existing=prefer_existing, timezone=timezone)
+    args = build_exiftool_args(
+        data,
+        media,
+        prefer_existing=prefer_existing,
+        timezone=timezone,
+        migration_id=migration_id,
+    )
     if not args:
         return False
 
