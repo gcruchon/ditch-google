@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ditch_google import protondrive
-from ditch_google.photos.metadata import load_sidecar
 from ditch_google.proc import ToolError
 from ditch_google.state import ArchiveStage, ItemStage, State
 
@@ -53,7 +53,7 @@ def verify_uploads(state: State, *, sample: int | None = None) -> VerifyResult:
     uploaded = [
         item
         for item in state.items()
-        if item.stage in {ItemStage.UPLOADED, ItemStage.VERIFIED} and item.sidecar_path
+        if item.stage in {ItemStage.UPLOADED, ItemStage.VERIFIED} and item.taken_at
     ]
     if sample is not None:
         uploaded = uploaded[:sample]
@@ -76,11 +76,12 @@ def verify_uploads(state: State, *, sample: int | None = None) -> VerifyResult:
     )
 
     for item in uploaded:
-        assert item.sidecar_path is not None  # noqa: S101 - filtered above
-        taken = load_sidecar(Path(item.sidecar_path)).taken_at
-        if taken is None:
+        assert item.taken_at is not None  # noqa: S101 - filtered above
+        try:
+            taken = datetime.fromisoformat(item.taken_at)
+        except ValueError:
             continue
-        key = taken.strftime("%Y-%m-%dT%H:%M:%S")
+        key = taken.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
         if remote_times.get(key):
             remote_times[key] -= 1
             result.matched_capture_times += 1

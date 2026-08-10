@@ -26,13 +26,15 @@ from pathlib import Path
 from ditch_google import protondrive
 from ditch_google.photos.discover import MEDIA_SUFFIXES
 from ditch_google.proc import ToolError
-from ditch_google.state import State
+from ditch_google.state import ItemStage, State
 
 __all__ = [
     "AlbumResult",
     "TakeoutAlbum",
     "discover_albums",
     "marker_album_name",
+    "push_albums",
+    "record_albums",
     "restore_albums",
 ]
 
@@ -167,6 +169,57 @@ def _ensure_album(state: State, title: str, existing: set[str], result: AlbumRes
     return True
 
 
+def record_albums(state: State, roots: Iterable[Path]) -> int:
+    """Read album membership off disk into the ledger. Returns albums seen.
+
+    Split from the Proton push so the streaming pipeline can call it while an archive's
+    files are still on disk, and delete them straight afterwards. The push then works
+    entirely from the ledger, which is what lets peak disk stay bounded to one archive.
+    """
+    albums = discover_albums(roots)
+    for album in albums:
+        album_id = state.add_album(album.title)
+        for path in album.media:
+            item = state.get_item(str(path))
+            if item is not None:
+                state.link_item_to_album(album_id, item.id)
+    return len(albums)
+
+
+def push_albums(
+    state: State,
+    *,
+    marker: bool = True,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> AlbumResult:
+    """Create the recorded albums in Proton and add their photos.
+
+    Reads only the ledger, never the filesystem, so it works after the staged files have
+    been deleted. Idempotent: albums already in Proton are reused rather than duplicated,
+    and photos already recorded as added are not re-sent.
+    """
+    result = AlbumResult()
+    existing = _existing_titles()
+
+    marker_title = marker_album_name(state.migration_id, state.started_at_local) if marker else None
+    if marker_title is not None:
+        marker_id = state.add_album(marker_title)
+        for item in state.items():
+            if item.stage in {ItemStage.UPLOADED, ItemStage.VERIFIED}:
+                state.link_item_to_album(marker_id, item.id)
+
+    albums = state.albums()
+    for index, album in enumerate(albums, start=1):
+        if not state.album_members(album.id):
+            continue
+        if _ensure_album(state, album.title, existing, result):
+            _send_pending(state, album.title, album.id, result)
+        if on_progress is not None:
+            on_progress(index, len(albums))
+
+    return result
+
+
 def restore_albums(
     state: State,
     roots: Iterable[Path],
@@ -174,54 +227,22 @@ def restore_albums(
     marker: bool = True,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> AlbumResult:
-    """Recreate every Takeout album in Proton and populate it.
+    """Record album membership from disk and push it to Proton, in one go.
 
-    Idempotent by design: albums already present are reused rather than duplicated, and
-    membership already recorded in the ledger is not re-sent. Adding a photo twice would
-    otherwise be the visible, annoying failure of a resumed run.
+    What the standalone ``photos albums`` command runs. The streaming pipeline instead
+    calls :func:`record_albums` per archive and :func:`push_albums` once at the end.
     """
-    albums = list(discover_albums(roots))
-    result = AlbumResult()
-    existing = _existing_titles()
-
-    marker_title = marker_album_name(state.migration_id, state.started_at_local) if marker else None
-    total = len(albums) + (1 if marker_title else 0)
-
-    for index, album in enumerate(albums, start=1):
-        if _ensure_album(state, album.title, existing, result):
-            _add_media(state, album.title, album.media, result)
-        if on_progress is not None:
-            on_progress(index, total)
-
-    if marker_title is not None:
-        # Everything this migration uploaded, in one place.
-        uploaded = [
-            Path(item.source_path)
-            for item in state.items()
-            if item.stage.value in {"uploaded", "verified"}
-        ]
-        if uploaded and _ensure_album(state, marker_title, existing, result):
-            _add_media(state, marker_title, uploaded, result)
-        if on_progress is not None:
-            on_progress(total, total)
-
-    return result
+    record_albums(state, roots)
+    return push_albums(state, marker=marker, on_progress=on_progress)
 
 
-def _add_media(state: State, title: str, media: Iterable[Path], result: AlbumResult) -> None:
-    """Add photos to an album, sending only those not already recorded as added.
+def _send_pending(state: State, title: str, album_id: int, result: AlbumResult) -> None:
+    """Send the album's not-yet-added photos to Proton.
 
-    Membership is recorded first, then the ledger itself decides what still needs
-    sending. That keeps a resumed run from adding the same photo twice, and lets a
-    previously failed batch be retried without re-sending its successful neighbours.
+    The ledger decides what still needs sending, which keeps a resumed run from adding
+    the same photo twice and lets a previously failed batch be retried without re-sending
+    its successful neighbours.
     """
-    album_id = state.add_album(title)
-
-    for path in media:
-        item = state.get_item(str(path))
-        if item is not None:
-            state.link_item_to_album(album_id, item.id)
-
     pending = state.album_members(album_id, pending_only=True)
 
     for start in range(0, len(pending), ALBUM_BATCH_SIZE):

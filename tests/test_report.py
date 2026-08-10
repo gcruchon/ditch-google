@@ -27,6 +27,17 @@ def sidecar(tmp_path: Path, name: str, timestamp: str = "1560000000") -> Path:
     return path
 
 
+#: 1560000000 as an instant. Verification reads the capture time from the ledger, not the
+#: sidecar file, because the streaming pipeline deletes the staged files before it runs.
+TAKEN_AT = "2019-06-08T13:20:00+00:00"
+
+
+def add_uploaded(state: State, path: str, tmp_path: Path, name: str) -> None:
+    """Register an item as uploaded, with its capture time recorded as `fix` would."""
+    state.add_item("a.tgz", path, str(sidecar(tmp_path, name)))
+    state.set_item_stage(path, ItemStage.UPLOADED, taken_at=TAKEN_AT)
+
+
 # --------------------------------------------------------------------------- report
 
 
@@ -123,9 +134,7 @@ def test_migration_id_survives_reopening(tmp_path: Path) -> None:
 
 
 def test_verify_matches_capture_times(state: State, fake_tool: FakeTool, tmp_path: Path) -> None:
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     fake_tool(
         "proton-drive",
         stdout=json.dumps([{"nodeUid": "x", "captureTime": "2019-06-08T13:20:00.000Z"}]),
@@ -139,9 +148,7 @@ def test_verify_matches_capture_times(state: State, fake_tool: FakeTool, tmp_pat
 
 def test_verify_reports_a_missing_photo(state: State, fake_tool: FakeTool, tmp_path: Path) -> None:
     """The failure that matters: the ledger says uploaded, the timeline disagrees."""
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     fake_tool("proton-drive", stdout="[]")
 
     result = verify_uploads(state)
@@ -155,9 +162,7 @@ def test_duplicate_capture_times_are_consumed_once_each(
 ) -> None:
     """Two photos taken the same second need two timeline entries, not one matched twice."""
     for name in ("a", "b"):
-        path = sidecar(tmp_path, name)
-        state.add_item("a.tgz", f"/w/{name}.jpg", str(path))
-        state.set_item_stage(f"/w/{name}.jpg", ItemStage.UPLOADED)
+        add_uploaded(state, f"/w/{name}.jpg", tmp_path, name)
 
     fake_tool(
         "proton-drive",
@@ -173,9 +178,7 @@ def test_unreachable_proton_is_unverified_not_failed(
     state: State, fake_tool: FakeTool, tmp_path: Path
 ) -> None:
     """A network blip must never read as data loss."""
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     fake_tool("proton-drive", stderr="network unreachable", exit_code=1)
 
     result = verify_uploads(state)
@@ -193,9 +196,7 @@ def test_verify_promotes_matched_items_to_verified(
     state: State, fake_tool: FakeTool, tmp_path: Path
 ) -> None:
     """Regression: items stayed at `uploaded` forever, so a finished run never read clean."""
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     fake_tool(
         "proton-drive",
         stdout=json.dumps([{"nodeUid": "x", "captureTime": "2019-06-08T13:20:00.000Z"}]),
@@ -212,9 +213,7 @@ def test_verify_promotes_matched_items_to_verified(
 def test_verify_closes_a_finished_archive(
     state: State, fake_tool: FakeTool, tmp_path: Path
 ) -> None:
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     fake_tool(
         "proton-drive",
         stdout=json.dumps([{"nodeUid": "x", "captureTime": "2019-06-08T13:20:00.000Z"}]),
@@ -231,9 +230,7 @@ def test_verify_closes_a_finished_archive(
 def test_an_archive_with_pending_items_is_not_closed(
     state: State, fake_tool: FakeTool, tmp_path: Path
 ) -> None:
-    path = sidecar(tmp_path, "a")
-    state.add_item("a.tgz", "/w/a.jpg", str(path))
-    state.set_item_stage("/w/a.jpg", ItemStage.UPLOADED)
+    add_uploaded(state, "/w/a.jpg", tmp_path, "a")
     state.add_item("a.tgz", "/w/todo.jpg")  # still discovered
     fake_tool(
         "proton-drive",

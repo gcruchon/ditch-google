@@ -30,6 +30,7 @@ class FixResult:
 def fix_pending(
     state: State,
     *,
+    archive: str | None = None,
     prefer_existing: bool = False,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> FixResult:
@@ -42,7 +43,7 @@ def fix_pending(
     unwritable photo out of a hundred thousand should not abandon the migration; the
     failures surface in the final report instead.
     """
-    pending = [item for item in state.pending_items() if item.stage is ItemStage.DISCOVERED]
+    pending = [item for item in state.pending_items(archive) if item.stage is ItemStage.DISCOVERED]
     result = FixResult()
     if not pending:
         return result
@@ -78,7 +79,13 @@ def fix_pending(
                     )
                     result.failed += 1
                 else:
-                    state.set_item_stage(item.source_path, ItemStage.FIXED)
+                    # Record the capture time now, while the sidecar is still on disk.
+                    # Verification runs after the streaming loop has deleted it.
+                    state.set_item_stage(
+                        item.source_path,
+                        ItemStage.FIXED,
+                        taken_at=data.taken_at.isoformat() if data.taken_at else None,
+                    )
                     if wrote:
                         result.written += 1
                     else:
