@@ -29,10 +29,6 @@ PHOTO_STAGES = [
     "status",
 ]
 
-#: Stages still to be built. Move a name out of here as its PR lands.
-IMPLEMENTED_STAGES = {"status", "fetch", "unpack", "fix", "upload", "albums", "verify"}
-UNIMPLEMENTED_STAGES = [s for s in PHOTO_STAGES if s not in IMPLEMENTED_STAGES]
-
 
 def test_version_flag_prints_version() -> None:
     result = runner.invoke(app, ["--version"])
@@ -67,12 +63,11 @@ def test_photos_help_lists_every_stage() -> None:
         assert stage in result.stdout
 
 
-@pytest.mark.parametrize("stage", UNIMPLEMENTED_STAGES)
-def test_unimplemented_stage_exits_cleanly(stage: str) -> None:
-    """A declared-but-unbuilt stage must fail loudly, not silently succeed."""
-    result = runner.invoke(app, ["photos", stage])
-    assert result.exit_code == 2
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+@pytest.mark.parametrize("stage", PHOTO_STAGES)
+def test_every_stage_has_help(stage: str) -> None:
+    """Every declared stage is built and documents itself."""
+    result = runner.invoke(app, ["photos", stage, "--help"])
+    assert result.exit_code == 0
 
 
 def test_doctor_passes_when_all_tools_are_healthy(all_tools_healthy: None, tmp_path: Path) -> None:
@@ -174,3 +169,21 @@ def test_status_json_is_plain_text_when_colour_is_forced(tmp_path: Path) -> None
     )
     assert "\x1b[" not in result.stdout
     json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        (0, "0 B"),
+        (512, "512 B"),
+        (2048, "2.0 KB"),
+        (5 * 1024**2, "5.0 MB"),
+        (3 * 1024**3, "3.0 GB"),
+        (2048 * 1024**3, "2048.0 GB"),
+    ],
+)
+def test_human_bytes_uses_a_sensible_scale(count: int, expected: str) -> None:
+    """ "0.0 GB" is a useless thing to print after a small first run."""
+    from ditch_google.cli import _human_bytes
+
+    assert _human_bytes(count) == expected

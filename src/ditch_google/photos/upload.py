@@ -56,6 +56,7 @@ def batch_items(items: Sequence[Item], size: int = DEFAULT_BATCH_SIZE) -> Iterat
 def upload_pending(
     state: State,
     *,
+    archive: str | None = None,
     conflict: str = "skip",
     batch_size: int = DEFAULT_BATCH_SIZE,
     on_progress: Callable[[int, int], None] | None = None,
@@ -66,7 +67,7 @@ def upload_pending(
     the default ``skip`` strategy leaves already-uploaded photos alone rather than
     creating a second copy of each.
     """
-    pending = [item for item in state.pending_items() if item.stage is ItemStage.FIXED]
+    pending = [item for item in state.pending_items(archive) if item.stage is ItemStage.FIXED]
     result = UploadResult()
     if not pending:
         return result

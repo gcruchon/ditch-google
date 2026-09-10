@@ -65,16 +65,37 @@ extracting the rest of it. The archive is marked `failed` in the ledger with the
 
 ## Streaming, not staging everything
 
-A real library is often hundreds of gigabytes, and the naive design needs that much local
-disk **twice** — once for the archive, once extracted.
+A Takeout export of a real library is hundreds of gigabytes. Running each stage over the
+whole export in turn would need that much local disk **twice** — the archives plus
+everything unpacked out of them.
 
-The pipeline therefore processes **one archive at a time**: fetch → unpack → fix → upload →
-verify → delete local, then the next. Peak disk use is roughly twice the largest single
-archive rather than twice the whole library. `--keep-local` opts out for users who also want
-a local copy.
+So [`pipeline.py`](../src/ditch_google/photos/pipeline.py) streams. Each archive is
+fetched, unpacked, catalogued, repaired, uploaded, and then **deleted** before the next
+one starts:
 
-Albums are the exception. Takeout scatters one album's photos across archives, so album
-reconstruction runs as a **final pass** once every archive has been uploaded.
+```
+for each archive:
+    fetch → unpack → discover → record albums → fix → upload → delete
+then once:
+    push albums → verify → report
+```
+
+Peak disk stays at roughly twice the largest single part. Takeout caps parts at 50 GB and
+most people choose 10 GB, so that is tens of gigabytes rather than hundreds.
+`--keep-local` disables the deletion for anyone who also wants a local copy.
+
+Deleting as we go forces two design constraints, both of which shaped earlier stages:
+
+- **Album membership is read per archive, into the ledger** — Takeout scatters one album
+  across several parts, so the push to Proton has to happen at the end, by which time the
+  folders are gone. `record_albums` runs while the files are present; `push_albums` reads
+  only the ledger.
+- **Capture times are stored in the ledger during `fix`** — verification matches on them,
+  and the sidecar JSON is deleted long before verification runs.
+
+Reclaiming happens only *after* the archive's photos are in Proton, so the copy being
+deleted is never the only one. An archive is marked `completed` only after its upload
+succeeds; marking it earlier would let a resumed run skip work that never happened.
 
 ## State and resume
 

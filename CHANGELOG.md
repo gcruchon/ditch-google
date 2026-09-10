@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ditch-google photos migrate` — the whole migration in one resumable command. Streams
+  **one archive at a time**: fetch, unpack, catalogue, repair metadata, upload, then
+  **delete the staged files** before starting the next. Peak disk stays near twice the
+  largest single Takeout part rather than twice the library. `--keep-local` opts out.
+- Capture times are recorded in the ledger during `fix`, so verification still works
+  after the staged files have been deleted.
+
 - `ditch-google photos albums` — recreates Takeout albums in Proton Photos, merging
   albums split across archives and skipping Google's `Photos from <year>` folders.
   Idempotent: existing albums are reused and photos are never added twice.
@@ -76,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `exiftool` or `proton-drive` installed.
 
 ### Fixed
+
+- `uploaded` now counts as a finished state, so a run that completed without remote
+  verification no longer reports items as still pending.
+- Byte counts are formatted at a sensible scale — a small run reported "0.0 GB".
 
 - `photos verify` now promotes confirmed items to `verified` and closes finished
   archives. Without it, items sat at `uploaded` forever and a successful migration could

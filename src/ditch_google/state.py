@@ -64,9 +64,11 @@ class ItemStage(StrEnum):
     SKIPPED = "skipped"
 
 
-#: Stages meaning "no further work needed".
+#: Stages meaning "no further work needed". `uploaded` counts: the photo is in Proton and
+#: nothing further is required of us. `verified` is the stronger claim that we went back
+#: and confirmed it, which only happens when remote verification runs.
 TERMINAL_ITEM_STAGES: frozenset[ItemStage] = frozenset(
-    {ItemStage.VERIFIED, ItemStage.FAILED, ItemStage.SKIPPED}
+    {ItemStage.UPLOADED, ItemStage.VERIFIED, ItemStage.FAILED, ItemStage.SKIPPED}
 )
 
 
@@ -95,6 +97,7 @@ class Item:
     proton_uid: str | None
     error: str | None
     updated_at: str
+    taken_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,12 @@ _MIGRATIONS: tuple[str, ...] = (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );
+    """,
+    # Capture time is read from the sidecar during `fix`, but verification runs after the
+    # streaming loop has deleted the staged files. Recording it here keeps verification
+    # possible without re-fetching an archive just to read its JSON again.
+    """
+    ALTER TABLE items ADD COLUMN taken_at TEXT;
     """,
 )
 
@@ -390,6 +399,7 @@ class State:
         error: str | None = None,
         proton_uid: str | None = None,
         sha1: str | None = None,
+        taken_at: str | None = None,
     ) -> None:
         """Advance an item, optionally attaching its Proton identity or checksum.
 
@@ -403,10 +413,11 @@ class State:
                 error      = ?,
                 proton_uid = COALESCE(?, proton_uid),
                 sha1       = COALESCE(?, sha1),
+                taken_at   = COALESCE(?, taken_at),
                 updated_at = ?
             WHERE source_path = ?
             """,
-            (stage, error, proton_uid, sha1, _now(), source_path),
+            (stage, error, proton_uid, sha1, taken_at, _now(), source_path),
         )
 
     def get_item(self, source_path: str) -> Item | None:
@@ -554,6 +565,7 @@ def _to_item(row: sqlite3.Row) -> Item:
         proton_uid=row["proton_uid"],
         error=row["error"],
         updated_at=row["updated_at"],
+        taken_at=row["taken_at"],
     )
 
 

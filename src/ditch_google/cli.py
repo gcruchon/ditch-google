@@ -1,8 +1,10 @@
 """Command-line entry point.
 
-The command surface is deliberately declared in full from the first release so the shape
-of the pipeline is visible, even while individual stages are still being built. Stages
-that are not implemented yet exit with a clear message rather than pretending to work.
+`photos migrate` runs the whole pipeline; the individual stages are also exposed so a
+migration can be driven step by step, inspected, or resumed from a particular point.
+
+Human-facing output goes through rich; anything a script might parse goes through
+`typer.echo`, and every command that can fail exits non-zero so it can gate a script.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from rich.console import Console
 from rich.progress import (
     BarColumn,
     Progress,
+    SpinnerColumn,
     TaskProgressColumn,
     TextColumn,
     TimeRemainingColumn,
@@ -30,6 +33,7 @@ from ditch_google.photos import albums as albums_module
 from ditch_google.photos import discover as discover_module
 from ditch_google.photos import fetch as fetch_module
 from ditch_google.photos import fix as fix_module
+from ditch_google.photos import pipeline as pipeline_module
 from ditch_google.photos import report as report_module
 from ditch_google.photos import unpack as unpack_module
 from ditch_google.photos import upload as upload_module
@@ -71,12 +75,6 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit
 
 
-def _not_yet(stage: str) -> None:
-    """Exit cleanly for a stage that exists in the CLI but is not built yet."""
-    err_console.print(f"[yellow]The '{stage}' stage is not implemented yet.[/yellow]")
-    raise typer.Exit(code=2)
-
-
 @app.callback()
 def main(
     version: Annotated[
@@ -85,6 +83,24 @@ def main(
     ] = False,
 ) -> None:
     """Migrate your data out of Google and into Proton."""
+
+
+#: Default staging directory, shared by every command that takes --work-dir.
+DEFAULT_WORK_DIR = Path("./work")
+
+
+def _human_bytes(count: int) -> str:
+    """Format a byte count at a sensible scale.
+
+    Always printing gigabytes turns a real number into a useless "0.0 GB" for anything
+    smaller, which is exactly the case on a first trial run.
+    """
+    size = float(count)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"  # pragma: no cover - unreachable, the loop always returns
 
 
 _STATUS_MARK = {Status.OK: "[green]OK[/green]", Status.WARN: "[yellow]WARN[/yellow]"}
@@ -114,7 +130,7 @@ def doctor(
     work_dir: Annotated[
         Path,
         typer.Option("--work-dir", help="Directory used to stage archives during migration."),
-    ] = Path("./work"),
+    ] = DEFAULT_WORK_DIR,
     source: Annotated[
         str | None,
         typer.Option("--source", help="Takeout location to verify, e.g. drive:Takeout."),
@@ -207,9 +223,98 @@ def _render_report(report: Report, remote: VerifyResult | None) -> None:
 
 
 @photos_app.command()
-def migrate() -> None:
+def migrate(
+    source: Annotated[
+        str, typer.Option("--source", help="Takeout location in Drive, e.g. drive:Takeout.")
+    ],
+    work_dir: Annotated[
+        Path, typer.Option("--work-dir", help="Where to stage archives.")
+    ] = DEFAULT_WORK_DIR,
+    state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
+    transfers: Annotated[int, typer.Option("--transfers", help="Parallel rclone transfers.")] = 4,
+    conflict: Annotated[
+        str, typer.Option("--conflict-strategy", help="skip or keep-both.")
+    ] = "skip",
+    keep_local: Annotated[
+        bool,
+        typer.Option(
+            "--keep-local/--no-keep-local",
+            help="Keep staged files instead of deleting each archive once it is uploaded.",
+        ),
+    ] = False,
+    prefer_existing: Annotated[
+        bool,
+        typer.Option("--prefer-existing-exif", help="Only fill metadata gaps, never overwrite."),
+    ] = False,
+    marker: Annotated[
+        bool, typer.Option("--marker-album/--no-marker-album", help="Group this run in an album.")
+    ] = True,
+    check_remote: Annotated[
+        bool, typer.Option("--remote/--no-remote", help="Verify against the Proton timeline.")
+    ] = True,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")] = False,
+) -> None:
     """Run the full migration: fetch, unpack, fix metadata, upload, restore albums."""
-    _not_yet("migrate")
+    if conflict not in protondrive.CONFLICT_STRATEGIES:
+        err_console.print(
+            f"[red]--conflict-strategy must be one of "
+            f"{', '.join(protondrive.CONFLICT_STRATEGIES)}.[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    checks = doctor_module.run_checks(work_dir=work_dir, source=source)
+    if any(check.failed for check in checks):
+        err_console.print("[red]Preflight checks failed.[/red]")
+        _render_checks(checks)
+        raise typer.Exit(code=1)
+
+    if not keep_local and not yes:
+        console.print(
+            "Each archive will be [bold]deleted locally[/bold] once its photos are in "
+            "Proton, so peak disk stays near one archive rather than the whole library."
+        )
+        console.print("Pass [bold]--keep-local[/bold] to keep them instead.")
+        if not typer.confirm("Continue?", default=True):
+            raise typer.Abort
+
+    with State.open(state_db or default_state_path()) as state:
+        console.print(f"[dim]migration {state.migration_id}[/dim]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("starting", total=None)
+
+            def hook(stage: str, archive: str, detail: str) -> None:
+                label = f"[bold]{stage}[/bold] {archive}" if archive else f"[bold]{stage}[/bold]"
+                progress.update(task, description=f"{label} {detail}".strip())
+
+            result = pipeline_module.run_migration(
+                state,
+                source=source,
+                work_dir=work_dir,
+                conflict=conflict,
+                transfers=transfers,
+                prefer_existing=prefer_existing,
+                keep_local=keep_local,
+                marker=marker,
+                check_remote=check_remote,
+                hook=hook,
+            )
+
+        if result.bytes_reclaimed:
+            console.print(f"Reclaimed {_human_bytes(result.bytes_reclaimed)} of staging space.")
+        if marker and result.report is not None:
+            name = albums_module.marker_album_name(state.migration_id, state.started_at_local)
+            console.print(f"This run is grouped in [bold]{name}[/bold].")
+
+        if result.report is not None:
+            _render_report(result.report, None)
+            if not result.report.clean:
+                raise typer.Exit(code=1)
 
 
 @photos_app.command()
@@ -218,9 +323,9 @@ def fetch(
         str,
         typer.Option("--source", help="Takeout location in Drive, e.g. drive:Takeout."),
     ],
-    work_dir: Annotated[Path, typer.Option("--work-dir", help="Where to stage archives.")] = Path(
-        "./work"
-    ),
+    work_dir: Annotated[
+        Path, typer.Option("--work-dir", help="Where to stage archives.")
+    ] = DEFAULT_WORK_DIR,
     state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
     transfers: Annotated[int, typer.Option("--transfers", help="Parallel rclone transfers.")] = 4,
 ) -> None:
@@ -278,7 +383,7 @@ def fetch(
 def unpack(
     work_dir: Annotated[
         Path, typer.Option("--work-dir", help="Where archives were staged.")
-    ] = Path("./work"),
+    ] = DEFAULT_WORK_DIR,
     state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
 ) -> None:
     """Extract the downloaded Takeout archives."""
@@ -438,7 +543,7 @@ def upload(
 def albums(
     work_dir: Annotated[
         Path, typer.Option("--work-dir", help="Where archives were unpacked.")
-    ] = Path("./work"),
+    ] = DEFAULT_WORK_DIR,
     state_db: Annotated[Path | None, typer.Option("--state-db", help="Ledger location.")] = None,
     marker: Annotated[
         bool,
